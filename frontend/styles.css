@@ -26,3 +26,37 @@
 .charttools.overlays input{width:auto;margin:0;accent-color:#718dff}
 
 #chart{position:relative}.chart-overlay{position:absolute;inset:0;z-index:4;pointer-events:none}.chartzoom{display:flex;gap:5px;margin-left:auto}.chartzoom button{border:1px solid #304665;background:#0b1425;color:#dce7f9;border-radius:6px;padding:6px 10px;font-size:11px;cursor:pointer}.chartzoom button:hover{background:#263a5c}.timeframes button{min-width:38px}.charttools{position:relative;z-index:5}
+
+
+/* Pro chart skin: muted burgundy plotting surface with high-contrast SMC zones */
+#chart{
+  height:clamp(340px,42vw,470px);
+  min-height:340px;
+  border:1px solid #3b2938;
+  border-radius:10px;
+  background:linear-gradient(180deg,#1a111d 0%,#17121f 55%,#141827 100%);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.025),0 12px 30px rgba(0,0,0,.16);
+}
+#chart canvas{border-radius:8px}
+.charttools{margin:12px 0}
+.charttools.overlays{
+  padding:9px 11px;
+  border:1px solid #342a3b;
+  border-radius:8px;
+  background:#151321;
+}
+.charttools.overlays label{color:#c8c4d5;font-weight:600;cursor:pointer}
+.charttools.overlays input{accent-color:#ff7185}
+.chartnav button,.timeframes button,.chartzoom button{
+  background:#191827;border-color:#40344a;color:#c6c3d2;
+  transition:background .15s ease,border-color .15s ease,color .15s ease;
+}
+.chartnav button:hover,.timeframes button:hover,.chartzoom button:hover{
+  background:#2a2030;border-color:#8c526b;color:#fff
+}
+.timeframes button.active{
+  background:#71364d;border-color:#e16b89;color:#fff;
+  box-shadow:0 0 0 1px rgba(225,107,137,.15)
+}
+#chartCaption{display:block;padding:10px 3px 0;color:#8993aa;letter-spacing:.25px}
+@media(max-width:680px){#chart{height:310px;min-height:300px}}
