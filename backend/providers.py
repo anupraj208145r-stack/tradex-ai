@@ -9,6 +9,12 @@ TickCallback = Callable[[str, float, int, str], Awaitable[None]]
 STATUS = {"BTCUSD":"starting", "XAUUSD":"missing_credentials" if not os.getenv("TWELVEDATA_API_KEY") else "starting"}
 LAST_ERROR = {"BTCUSD":None,"XAUUSD":None}
 
+def safe_error(exc:Exception)->str:
+    message=str(exc)
+    secret=os.getenv("TWELVEDATA_API_KEY")
+    if secret:message=message.replace(secret,"[REDACTED]")
+    return message[:240]
+
 async def history(symbol: str) -> list[dict]:
     timeout=httpx.Timeout(15.0, connect=8.0)
     async with httpx.AsyncClient(timeout=timeout) as client:
@@ -56,7 +62,7 @@ async def coinbase_stream(on_tick: TickCallback):
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            STATUS["BTCUSD"]="reconnecting"; LAST_ERROR["BTCUSD"]=str(exc)[:240]
+            STATUS["BTCUSD"]="reconnecting"; LAST_ERROR["BTCUSD"]=safe_error(exc)
             await asyncio.sleep(delay+random.random()); delay=min(delay*2,30)
 
 async def gold_stream(on_tick: TickCallback):
