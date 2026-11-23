@@ -99,6 +99,7 @@ class UserPaperAccount(Base):
     realized_pnl: Mapped[float] = mapped_column(Float, default=0.0)
     auto_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     active_strategy: Mapped[str] = mapped_column(String(64), default="STR-001")
+    active_timeframe: Mapped[str] = mapped_column(String(8), default="1m")
     risk_pct: Mapped[float] = mapped_column(Float, default=1.0)
     updated_at: Mapped[int] = mapped_column(BigInteger, default=lambda: int(datetime.now(timezone.utc).timestamp()))
 
