@@ -140,6 +140,21 @@ class UserCustomStrategy(Base):
     direction: Mapped[str] = mapped_column(String(16))
     created_at: Mapped[int] = mapped_column(BigInteger)
 
+
+class SupportTicket(Base):
+    __tablename__ = "support_tickets"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    email: Mapped[str] = mapped_column(String(254), index=True)
+    category: Mapped[str] = mapped_column(String(40))
+    subject: Mapped[str] = mapped_column(String(120))
+    message: Mapped[str] = mapped_column(String(5000))
+    status: Mapped[str] = mapped_column(String(20), default="new", index=True)
+    admin_note: Mapped[str] = mapped_column(String(2000), default="")
+    email_sent: Mapped[bool] = mapped_column(Boolean, default=False)
+    created_at: Mapped[int] = mapped_column(BigInteger, index=True)
+    updated_at: Mapped[int] = mapped_column(BigInteger)
+
 def init_db():
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as db:
