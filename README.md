@@ -178,3 +178,27 @@ Never commit `.env` or API keys.
 - Production monitoring, alerting, backup/restore drills, Alembic migrations, and deployment hardening.
 
 Educational software only. Not investment advice.
+
+
+## Supabase Auth setup (required before enabling sign-in)
+
+This branch adds Supabase Auth in the browser and verifies every protected API bearer token against Supabase Auth's `/auth/v1/user` endpoint. The server never trusts a user ID supplied by the browser. Paper accounts, positions, closed trades, and custom strategy drafts are stored in separate user-keyed tables. The old single shared account tables are retained only for rollback and are not exposed through authenticated endpoints. Existing shared-account funds/positions are not copied to new users automatically.
+
+1. Create a Supabase project.
+2. In **Project Settings → API**, copy the Project URL and the publishable key (or legacy anon key). Put them in `frontend/supabase-config.js` as `TRADEX_SUPABASE_URL` and `TRADEX_SUPABASE_ANON_KEY`. These are public browser values. Never use the `service_role` key in frontend code.
+3. In **Authentication → Providers**, enable **Phone** and configure a supported SMS provider in Supabase Auth. Set the SMS message template and rate limits. Confirm your SMS provider account has a valid sender/route and sufficient credits.
+4. Enable **Google** provider and configure the OAuth Client ID and Client Secret from Google Cloud Console in Supabase. Add the Supabase callback URL shown in the provider setup to the Google OAuth authorized redirect URIs.
+5. In **Authentication → URL Configuration**, add the exact production app URL and local development URL to Site URL / Redirect URLs. For Google OAuth, also add the exact app redirect URL.
+6. Set Railway app variables `SUPABASE_URL` and `SUPABASE_ANON_KEY` to the same project URL and public anon/publishable key. Do not configure the service_role key.
+7. Deploy the branch and test: email signup/confirmation, email+password login, Google OAuth, phone OTP, phone password set, email password recovery, and phone OTP password reset.
+8. Verify that two separate Supabase users each receive their own initial virtual balance and cannot see or close each other's positions.
+
+### Security notes
+
+- All trading/account endpoints require a valid Supabase bearer token; market quotes, candles, and health remain public.
+- WebSocket market sessions require a verified Supabase access token and receive only that user's paper-account snapshot.
+- Server-side queries scope all paper records to the authenticated Supabase user ID. Do not expose the Railway database credentials or create direct browser access to these tables.
+- Use HTTPS in production. Supabase public keys are expected in the browser; database credentials and provider secrets are not.
+- Phone OTP password setup requires the user to enter a password in the Password field before completing OTP verification. Password reset for email uses Supabase's recovery email flow; phone password reset uses a fresh SMS OTP and then updates the password.
+- Configure Supabase email confirmation and SMS rate limits to reduce account abuse. Enable CAPTCHA/Turnstile in Supabase Auth if your plan and provider support it.
+- This app uses its own Railway/Postgres database for paper-trading records; Supabase Auth is the identity provider. Supabase database RLS policies do not apply to the separate Railway database. Isolation is enforced by verified server identity and user-scoped SQL queries.
