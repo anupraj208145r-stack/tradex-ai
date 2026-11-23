@@ -52,8 +52,8 @@
     "name": "Supertrend",
     "category": "Trend",
     "rule_summary": "Supertrend direction flips",
-    "executable": true,
-    "status": "implemented"
+    "executable": false,
+    "status": "template"
   },
   {
     "id": "STR-008",
@@ -204,8 +204,8 @@
     "name": "ATR Trailing Trend",
     "category": "Risk",
     "rule_summary": "ATR trend with trailing stop",
-    "executable": true,
-    "status": "implemented"
+    "executable": false,
+    "status": "template"
   },
   {
     "id": "STR-027",
@@ -428,8 +428,8 @@
     "name": "Supertrend + RSI",
     "category": "Hybrid",
     "rule_summary": "Supertrend flip with RSI filter",
-    "executable": true,
-    "status": "implemented"
+    "executable": false,
+    "status": "template"
   },
   {
     "id": "STR-055",
