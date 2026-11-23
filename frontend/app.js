@@ -1,5 +1,5 @@
 const API = location.origin;
-let symbol = "XAUUSD", chart, candleSeries, candles = [], strategies = [], riskLines = [];
+let symbol = "XAUUSD", timeframe = "1m", chart, candleSeries, candles = [], strategies = [], riskLines = [], overlayLines = [];
 let ws=null, reconnectDelay=1000, lastAccountPaint=0;
 const $ = id => document.getElementById(id);
 const money = n => (n < 0 ? "-$" : "$") + Math.abs(Number(n || 0)).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -16,7 +16,7 @@ function initChart(){
  window.addEventListener("beforeunload",()=>observer.disconnect(),{once:true});
 }
 async function loadCandles(){
- const rows=await api("/api/candles/"+symbol);
+ const rows=await api("/api/candles/"+symbol+"?timeframe="+timeframe);
  const byTime=new Map();
  for(const c of rows){const time=Number(c.time),open=Number(c.open),high=Number(c.high),low=Number(c.low),close=Number(c.close);
   if(Number.isFinite(time)&&Number.isFinite(open)&&Number.isFinite(high)&&Number.isFinite(low)&&Number.isFinite(close)&&high>=low)byTime.set(time,{time,open,high,low,close});
@@ -27,10 +27,20 @@ async function loadCandles(){
   chart.timeScale().fitContent();
   $("lastPrice").textContent=Number(candles[candles.length-1].close).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
  }
+ await loadAnalysis();
+ $("chartCaption").textContent=timeframe+" candles · both market scanners operate independently · paper only";
+}
+async function loadAnalysis(){
+ for(const line of overlayLines)candleSeries.removePriceLine(line);overlayLines=[];
+ try{const data=await api("/api/analysis/"+symbol+"?timeframe="+timeframe);
+  const addZone=(zone,label,color)=>{overlayLines.push(candleSeries.createPriceLine({price:Number(zone.low),color,lineWidth:1,lineStyle:LightweightCharts.LineStyle.Dotted,axisLabelVisible:true,title:label+" L"}));overlayLines.push(candleSeries.createPriceLine({price:Number(zone.high),color,lineWidth:1,lineStyle:LightweightCharts.LineStyle.Dotted,axisLabelVisible:true,title:label+" H"}));};
+  if($("showFvg").checked)(data.fvg||[]).forEach(z=>addZone(z,"FVG "+z.type,z.type==="bullish"?"#28d6a1":"#ff9c70"));
+  if($("showOb").checked)(data.order_blocks||[]).forEach(z=>addZone(z,"OB "+z.type,z.type==="bullish"?"#718dff":"#c18cff"));
+ }catch(e){console.warn("Chart analysis unavailable",e);}
 }
 function updateChart(quote){
  if(!quote||!Number.isFinite(Number(quote.price))||!Number.isFinite(Number(quote.time)))return;
- const price=Number(quote.price), minute=Math.floor(Number(quote.time)/60)*60;
+ const price=Number(quote.price), step=({"1m":60,"5m":300,"15m":900,"30m":1800,"1h":3600,"4h":14400,"1d":86400})[timeframe], minute=Math.floor(Number(quote.time)/step)*step;
  const last=candles[candles.length-1];
  if(!last){const c={time:minute,open:price,high:price,low:price,close:price};candles.push(c);candleSeries.update(c);}
  else if(minute<last.time){$("lastPrice").textContent=price.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});return;}
@@ -115,6 +125,11 @@ $("risk").oninput=()=>{$("riskLabel").textContent=Number($("risk").value).toFixe
 $("strategySearch").oninput=renderStrategies;
 $("saveCustom").onclick=async()=>{try{const body={name:$("customName").value,symbol:"BOTH",fast_ema:Number($("fastEma").value),slow_ema:Number($("slowEma").value),direction:"both"};const item=await api("/api/strategies/custom",{method:"POST",body:JSON.stringify(body)});strategies.push(item);await loadStrategies(item.id);toast("Custom EMA strategy saved and can be selected for paper automation");}catch(e){toast(e.message);}};
 $("positionsBody").onclick=async event=>{const id=event.target.dataset.close;if(id){try{await api("/api/positions/"+id+"/close",{method:"POST"});toast("Position closed");await refresh();}catch(e){toast(e.message);}}};
-document.querySelectorAll("[data-symbol]").forEach(button=>button.onclick=async()=>{symbol=button.dataset.symbol;$("orderSymbol").value=symbol;document.querySelectorAll("[data-symbol]").forEach(b=>b.classList.toggle("active",b===button));$("chartTitle").textContent=symbol+(symbol==="XAUUSD"?" · Gold / US Dollar":" · Bitcoin / US Dollar");candles=[];candleSeries.setData([]);try{await loadCandles();}catch(e){toast("Could not load "+symbol+" candles: "+e.message);}});
+async function switchSymbol(next){symbol=next;$("orderSymbol").value=symbol;document.querySelectorAll("[data-symbol]").forEach(b=>b.classList.toggle("active",b.dataset.symbol===symbol));$("chartTitle").textContent=symbol+(symbol==="XAUUSD"?" · Gold / US Dollar":" · Bitcoin / US Dollar");candles=[];candleSeries.setData([]);await loadCandles();}
+document.querySelectorAll("[data-symbol]").forEach(button=>button.onclick=()=>switchSymbol(button.dataset.symbol).catch(e=>toast("Could not load "+symbol+": "+e.message)));
+$("prevSymbol").onclick=()=>switchSymbol(symbol==="XAUUSD"?"BTCUSD":"XAUUSD").catch(e=>toast(e.message));
+$("nextSymbol").onclick=()=>switchSymbol(symbol==="XAUUSD"?"BTCUSD":"XAUUSD").catch(e=>toast(e.message));
+document.querySelectorAll("[data-timeframe]").forEach(button=>button.onclick=async()=>{timeframe=button.dataset.timeframe;document.querySelectorAll("[data-timeframe]").forEach(b=>b.classList.toggle("active",b===button));candles=[];candleSeries.setData([]);try{await loadCandles();}catch(e){toast("Timeframe load failed: "+e.message);}});
+$("showFvg").onchange=loadAnalysis;$("showOb").onchange=loadAnalysis;
 async function boot(){await window.authReady;if(!await window.getTradeXAccessToken?.())return;initChart();const initial=await refresh();await loadStrategies(initial.account.active_strategy);await loadCandles().catch(()=>{});await refreshFeeds();connectMarketSocket();setInterval(refreshFeeds,30000);}
 boot().catch(error=>toast(error.message));
