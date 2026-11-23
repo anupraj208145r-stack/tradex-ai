@@ -235,12 +235,12 @@ def signal_for(strategy_id:str,candles:list[dict])->str|None:
     return None
 
 SUPPORTED_STRATEGIES = {
- "STR-001","STR-002","STR-003","STR-004","STR-005","STR-006","STR-007",
+ "STR-001","STR-002","STR-003","STR-004","STR-005","STR-006",
  "STR-010","STR-011","STR-012","STR-013","STR-014","STR-015","STR-017",
- "STR-019","STR-020","STR-022","STR-023","STR-024","STR-025","STR-026",
+ "STR-019","STR-020","STR-022","STR-023","STR-024","STR-025",
  "STR-033","STR-034","STR-035","STR-036","STR-037","STR-038","STR-039",
  "STR-040","STR-044","STR-045","STR-046","STR-047","STR-048","STR-049",
- "STR-050","STR-052","STR-053","STR-054","STR-055","STR-056","STR-057"
+ "STR-050","STR-052","STR-053","STR-055","STR-056","STR-057"
 }
 
 def atr_value(candles:list[dict],period:int=14)->float|None:
