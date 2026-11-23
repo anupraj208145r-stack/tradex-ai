@@ -39,3 +39,13 @@ def test_custom_strategy_persists_as_non_executable_draft():
         assert response.json()["executable"] is False
         strategy_id=response.json()["id"]
         assert any(s["id"]==strategy_id for s in client.get("/api/strategies").json())
+
+def test_stale_quote_is_not_accepted_for_manual_order():
+    import backend.main as main
+    from backend import providers
+    with TestClient(app) as client:
+        main.prices["XAUUSD"]=2350.0
+        main.quotes_meta["XAUUSD"]={"symbol":"XAUUSD","price":2350.0,"time":1,"feed":"old","status":"connected"}
+        providers.STATUS["XAUUSD"]="connected"
+        response=client.post("/api/orders",json={"symbol":"XAUUSD","side":"BUY","quantity":0.01})
+        assert response.status_code==503
