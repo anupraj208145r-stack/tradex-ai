@@ -2,7 +2,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from datetime import datetime, timezone
-from sqlalchemy import create_engine, String, Float, Integer, Boolean, BigInteger, Index
+from sqlalchemy import create_engine, String, Float, Integer, Boolean, BigInteger, Index, inspect
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data/tradex.db")
@@ -34,6 +34,7 @@ class PaperAccount(Base):
     realized_pnl: Mapped[float] = mapped_column(Float, default=0.0)
     auto_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     active_strategy: Mapped[str] = mapped_column(String(64), default="STR-001")
+    active_timeframe: Mapped[str] = mapped_column(String(8), default="1m")
     risk_pct: Mapped[float] = mapped_column(Float, default=1.0)
     updated_at: Mapped[int] = mapped_column(BigInteger, default=lambda: int(datetime.now(timezone.utc).timestamp()))
 
@@ -169,6 +170,11 @@ class SupportTicket(Base):
 
 def init_db():
     Base.metadata.create_all(bind=engine)
+    # Add timeframe preference to existing installations without requiring a destructive migration.
+    columns={c["name"] for c in inspect(engine).get_columns("user_paper_accounts")}
+    if "active_timeframe" not in columns:
+        with engine.begin() as conn:
+            conn.exec_driver_sql("ALTER TABLE user_paper_accounts ADD COLUMN active_timeframe VARCHAR(8) NOT NULL DEFAULT '1m'")
     with SessionLocal() as db:
         if db.get(PaperAccount, 1) is None:
             db.add(PaperAccount(id=1))
