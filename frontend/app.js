@@ -1,6 +1,6 @@
 const API = location.origin;
 let symbol = "XAUUSD", timeframe = "1m", chart, candleSeries, candles = [], strategies = [], riskLines = [], overlayLines = [];
-let ws=null, reconnectDelay=1000, lastAccountPaint=0;
+let ws=null, reconnectDelay=1000, lastAccountPaint=0, botRunning=false, activeStrategyId="STR-001";
 const $ = id => document.getElementById(id);
 const money = n => (n < 0 ? "-$" : "$") + Math.abs(Number(n || 0)).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 function toast(message){const el=$("toast");el.textContent=message;el.classList.add("show");setTimeout(()=>el.classList.remove("show"),2300);}
@@ -76,7 +76,7 @@ function paintAccount(account,quotes){
  $("balance").textContent=money(account.balance);$("equity").textContent=money(account.equity);
  $("realized").textContent=money(account.realized_pnl);$("unrealized").textContent=money(account.unrealized_pnl);
  $("realized").className=account.realized_pnl>=0?"good":"bad";$("unrealized").className=account.unrealized_pnl>=0?"good":"bad";
- $("botStatus").textContent=account.auto?"● AUTO TRADING RUNNING":"● AUTO TRADING STOPPED";
+ botRunning=!!account.auto;activeStrategyId=account.active_strategy||activeStrategyId;\n $("botStatus").textContent=account.auto?"● AUTO TRADING RUNNING · "+(account.active_timeframe||"1m"):"● AUTO TRADING STOPPED";
  $("autoBtn").disabled=account.auto;$("stopBtn").disabled=!account.auto;
  renderPositions(account.positions,quotes);renderHistory(account.history);
  $("positionCount").textContent=account.positions.length;$("historyCount").textContent=account.history.length;
@@ -119,7 +119,7 @@ async function place(side){
 }
 $("buyBtn").onclick=()=>place("BUY");$("sellBtn").onclick=()=>place("SELL");
 $("resetBtn").onclick=async()=>{const value=prompt("Enter new starting paper balance (USD):","10000");if(value===null)return;try{await api("/api/account/reset",{method:"POST",body:JSON.stringify({balance:Number(value)})});toast("Paper account reset");await refresh();}catch(e){toast(e.message);}};
-$("autoBtn").onclick=async()=>{try{await api("/api/auto",{method:"POST",body:JSON.stringify({enabled:true,strategy_id:$("autoStrategy").value,risk_pct:Number($("risk").value)})});toast("Auto paper trading started");await refresh();}catch(e){toast(e.message);}};
+$("autoBtn").onclick=async()=>{try{await api("/api/auto",{method:"POST",body:JSON.stringify({enabled:true,strategy_id:$("autoStrategy").value,risk_pct:Number($("risk").value),timeframe})});toast("Auto paper trading started");await refresh();}catch(e){toast(e.message);}};
 $("stopBtn").onclick=async()=>{try{await api("/api/auto",{method:"POST",body:JSON.stringify({enabled:false,risk_pct:Number($("risk").value)})});toast("Auto trading stopped");await refresh();}catch(e){toast(e.message);}};
 $("risk").oninput=()=>{$("riskLabel").textContent=Number($("risk").value).toFixed(2)+"%";};
 $("strategySearch").oninput=renderStrategies;
@@ -129,7 +129,7 @@ async function switchSymbol(next){symbol=next;$("orderSymbol").value=symbol;docu
 document.querySelectorAll("[data-symbol]").forEach(button=>button.onclick=()=>switchSymbol(button.dataset.symbol).catch(e=>toast("Could not load "+symbol+": "+e.message)));
 $("prevSymbol").onclick=()=>switchSymbol(symbol==="XAUUSD"?"BTCUSD":"XAUUSD").catch(e=>toast(e.message));
 $("nextSymbol").onclick=()=>switchSymbol(symbol==="XAUUSD"?"BTCUSD":"XAUUSD").catch(e=>toast(e.message));
-document.querySelectorAll("[data-timeframe]").forEach(button=>button.onclick=async()=>{timeframe=button.dataset.timeframe;document.querySelectorAll("[data-timeframe]").forEach(b=>b.classList.toggle("active",b===button));candles=[];candleSeries.setData([]);try{await loadCandles();}catch(e){toast("Timeframe load failed: "+e.message);}});
+document.querySelectorAll("[data-timeframe]").forEach(button=>button.onclick=async()=>{timeframe=button.dataset.timeframe;document.querySelectorAll("[data-timeframe]").forEach(b=>b.classList.toggle("active",b===button));candles=[];candleSeries.setData([]);try{await loadCandles();if(botRunning){await api("/api/auto",{method:"POST",body:JSON.stringify({enabled:true,strategy_id:activeStrategyId,risk_pct:Number($("risk").value),timeframe})});toast("Bot timeframe changed to "+timeframe);}}catch(e){toast("Timeframe load failed: "+e.message);}});
 $("showFvg").onchange=loadAnalysis;$("showOb").onchange=loadAnalysis;
 async function boot(){await window.authReady;if(!await window.getTradeXAccessToken?.())return;initChart();const initial=await refresh();await loadStrategies(initial.account.active_strategy);await loadCandles().catch(()=>{});await refreshFeeds();connectMarketSocket();setInterval(refreshFeeds,30000);}
 boot().catch(error=>toast(error.message));
