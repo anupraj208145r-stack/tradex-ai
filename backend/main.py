@@ -11,11 +11,12 @@ from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select, desc, func
 
-from .db import (init_db, SessionLocal, Candle, UserPaperAccount, UserPosition, UserTrade, UserCustomStrategy, SupportTicket)
+from .db import (init_db, SessionLocal, Candle, UserPaperAccount, UserPosition, UserTrade, UserCustomStrategy, UserRiskState, SupportTicket)
 from .auth import current_user, verify_access_token
 import httpx
 from . import providers
 from .strategy_engine import signal_for, SUPPORTED_STRATEGIES, atr_value
+from .risk_engine import POLICY, position_risk, evaluate_limits
 
 BASE=Path(__file__).parent
 CATALOG=json.loads((BASE/"strategies.json").read_text())
@@ -77,7 +78,7 @@ class ResetIn(BaseModel):
 class AutoIn(BaseModel):
     enabled:bool
     strategy_id:str|None=None
-    risk_pct:float=Field(default=1.0,gt=0,le=5)
+    risk_pct:float=Field(default=0.25,gt=0,le=0.25)
 class CustomStrategyIn(BaseModel):
     name:str=Field(min_length=3,max_length=60)
     symbol:Literal["XAUUSD","BTCUSD","BOTH"]="BOTH"
@@ -94,7 +95,7 @@ def db_account(db,user_id:str):
     account=db.get(UserPaperAccount,user_id)
     if account is None:
         account=UserPaperAccount(user_id=user_id,starting_balance=10000,balance=10000,realized_pnl=0,
-                                 auto_enabled=False,active_strategy="STR-001",risk_pct=1)
+                                 auto_enabled=False,active_strategy="STR-001",risk_pct=0.25)
         db.add(account);db.commit();db.refresh(account)
     return account
 
@@ -108,16 +109,53 @@ def trade_dict(t):
         "entry":t.entry,"exit":t.exit,"pnl":t.pnl,"reason":t.reason,
         "opened_at":t.opened_at,"closed_at":t.closed_at}
 
+def user_risk_status(db, user_id:str, account, equity:float, unrealized:float, positions:list):
+    day_key=time.strftime("%Y-%m-%d",time.gmtime())
+    state=db.get(UserRiskState,user_id)
+    if state is None:
+        state=UserRiskState(user_id=user_id,day_key=day_key,day_start_equity=equity,
+            equity_peak=equity,consecutive_losses=0,daily_locked=False,hard_locked=False,lock_reason="")
+        db.add(state);db.flush()
+    elif state.day_key != day_key:
+        state.day_key=day_key
+        state.day_start_equity=equity
+        state.daily_locked=False
+        if not state.hard_locked:state.lock_reason=""
+    state.equity_peak=max(float(state.equity_peak),equity)
+    open_risk=sum(position_risk(p.entry,p.stop_loss,p.quantity) for p in positions)
+    risk=evaluate_limits(starting_balance=account.starting_balance,
+        day_start_equity=state.day_start_equity,equity=equity,unrealized_pnl=unrealized,
+        open_risk=open_risk,consecutive_losses=state.consecutive_losses,
+        daily_locked=state.daily_locked,hard_locked=state.hard_locked)
+    if risk["daily_locked"] and not state.daily_locked:
+        state.daily_locked=True;state.lock_reason=risk["reason"];state.locked_at=int(time.time())
+    if risk["hard_locked"] and not state.hard_locked:
+        state.hard_locked=True;state.lock_reason=risk["reason"];state.locked_at=int(time.time())
+    if state.daily_locked or state.hard_locked:
+        account.auto_enabled=False
+    risk.update({"day_key":state.day_key,"day_start_equity":round(state.day_start_equity,2),
+        "equity_peak":round(state.equity_peak,2),"lock_reason":state.lock_reason or risk["reason"]})
+    return risk
+
+def calculate_account_metrics(db,user_id:str):
+    a=db_account(db,user_id)
+    positions=db.scalars(select(UserPosition).where(UserPosition.user_id==user_id)).all()
+    floating=sum((prices.get(p.symbol,p.entry)-p.entry)*p.quantity*(1 if p.side=="BUY" else -1) for p in positions)
+    equity=a.balance+floating
+    risk=user_risk_status(db,user_id,a,equity,floating,positions)
+    db.commit()
+    return a,positions,floating,equity,risk
+
 def account_snapshot(user_id:str):
     with SessionLocal() as db:
         a=db_account(db,user_id)
-        positions=[position_dict(p) for p in db.scalars(select(UserPosition).where(UserPosition.user_id==user_id)).all()]
+        a,raw_positions,floating,equity,risk=calculate_account_metrics(db,user_id)
+        positions=[position_dict(p) for p in raw_positions]
         history=[trade_dict(t) for t in db.scalars(select(UserTrade).where(UserTrade.user_id==user_id).order_by(desc(UserTrade.closed_at)).limit(100)).all()]
-        floating=sum((prices.get(p["symbol"],p["entry"])-p["entry"])*p["quantity"]*(1 if p["side"]=="BUY" else -1) for p in positions)
-        return {"balance":round(a.balance,2),"equity":round(a.balance+floating,2),
+        return {"balance":round(a.balance,2),"equity":round(equity,2),
             "realized_pnl":round(a.realized_pnl,2),"unrealized_pnl":round(floating,2),
             "positions":positions,"history":history,"auto":a.auto_enabled,
-            "active_strategy":a.active_strategy,"risk_pct":a.risk_pct}
+            "active_strategy":a.active_strategy,"risk_pct":a.risk_pct,"risk":risk}
 
 def get_strategy_items(user_id:str):
     with SessionLocal() as db:
@@ -153,10 +191,17 @@ def close_position(user_id:str,position_id:str,reason:str):
         exit_price=prices.get(p.symbol,p.entry)
         pnl=(exit_price-p.entry)*p.quantity*(1 if p.side=="BUY" else -1)
         a=db_account(db,user_id);a.balance+=pnl;a.realized_pnl+=pnl;a.updated_at=int(time.time())
+        state=db.get(UserRiskState,user_id)
+        if state is not None:
+            state.consecutive_losses=state.consecutive_losses+1 if pnl<0 else 0
         db.add(UserTrade(user_id=user_id,position_id=p.id,symbol=p.symbol,side=p.side,quantity=p.quantity,
             entry=p.entry,exit=exit_price,pnl=round(pnl,2),reason=reason,
             opened_at=p.opened_at,closed_at=int(time.time())))
-        db.delete(p);db.commit()
+        db.delete(p);db.flush()
+        remaining=db.scalars(select(UserPosition).where(UserPosition.user_id==user_id)).all()
+        floating=sum((prices.get(x.symbol,x.entry)-x.entry)*x.quantity*(1 if x.side=="BUY" else -1) for x in remaining)
+        user_risk_status(db,user_id,a,a.balance+floating,floating,remaining)
+        db.commit()
 
 def check_exits(symbol:str):
     price=prices.get(symbol)
@@ -205,10 +250,17 @@ def evaluate_auto(symbol:str):
             levels=adaptive_levels(symbol,side,entry,series)
             if levels is None:continue
             sl,tp=levels
-            risk_cash=max(account.balance,0)*account.risk_pct/100
+            positions=db.scalars(select(UserPosition).where(UserPosition.user_id==account.user_id)).all()
+            floating=sum((prices.get(p.symbol,p.entry)-p.entry)*p.quantity*(1 if p.side=="BUY" else -1) for p in positions)
+            equity=account.balance+floating
+            risk=user_risk_status(db,account.user_id,account,equity,floating,positions)
+            if risk["status"]!="ACTIVE" or len(positions)>=POLICY["max_positions"]:continue
+            if sum(1 for p in positions if p.symbol==symbol)>=POLICY["max_positions_per_symbol"]:continue
+            risk_cash=max(account.starting_balance,0)*POLICY["risk_per_trade_pct"]/100
             qty=min(100.0,round(risk_cash/abs(entry-sl),6))
             qty=min(qty,max(account.balance,0)*5/entry)
             if qty<0.001:continue
+            if sum(position_risk(p.entry,p.stop_loss,p.quantity) for p in positions)+position_risk(entry,sl,qty)>account.starting_balance*POLICY["max_open_risk_pct"]/100:continue
             db.add(UserPosition(id=uuid.uuid4().hex,user_id=account.user_id,symbol=symbol,side=side,quantity=qty,
                 entry=entry,stop_loss=sl,take_profit=tp,opened_at=int(time.time()),source="auto"))
         db.commit()
@@ -341,6 +393,13 @@ def order(req:OrderIn,user=Depends(current_user)):
     if req.symbol not in prices or not feed_is_fresh(req.symbol):raise HTTPException(503,"No fresh live market price available yet for this symbol")
     with SessionLocal() as db:
         a=db_account(db,user["id"])
+        a,existing,floating,equity,risk=calculate_account_metrics(db,user["id"])
+        if risk["status"]!="ACTIVE":
+            raise HTTPException(403,detail="Paper risk lock: "+risk["reason"]+". New orders are blocked.")
+        if len(existing)>=POLICY["max_positions"]:
+            raise HTTPException(403,detail="Maximum open position count reached")
+        if sum(1 for p in existing if p.symbol==req.symbol)>=POLICY["max_positions_per_symbol"]:
+            raise HTTPException(403,detail="Maximum positions for this symbol reached")
         if req.quantity*prices[req.symbol]>max(a.balance,0)*5:
             raise HTTPException(400,"Paper order notional exceeds 5x account balance")
         entry=prices[req.symbol]
@@ -352,6 +411,15 @@ def order(req:OrderIn,user=Depends(current_user)):
             if tp is None:tp=levels[1]
         if sl is not None and ((req.side=="BUY" and sl>=entry) or (req.side=="SELL" and sl<=entry)):raise HTTPException(status_code=422,detail="Stop loss must be below entry for BUY and above entry for SELL")
         if tp is not None and ((req.side=="BUY" and tp<=entry) or (req.side=="SELL" and tp>=entry)):raise HTTPException(status_code=422,detail="Take profit must be above entry for BUY and below entry for SELL")
+        stop_distance=abs(entry-sl);target_distance=abs(tp-entry)
+        if stop_distance<=0 or target_distance/stop_distance<POLICY["minimum_reward_risk"]:
+            raise HTTPException(status_code=422,detail="Minimum paper trade reward/risk is 1:"+str(POLICY["minimum_reward_risk"]))
+        new_risk=position_risk(entry,sl,req.quantity)
+        if new_risk>a.starting_balance*POLICY["risk_per_trade_pct"]/100:
+            raise HTTPException(status_code=422,detail="Position risk exceeds conservative 0.25% per-trade cap")
+        current_open_risk=sum(position_risk(p.entry,p.stop_loss,p.quantity) for p in existing)
+        if current_open_risk+new_risk>a.starting_balance*POLICY["max_open_risk_pct"]/100:
+            raise HTTPException(status_code=422,detail="Combined open risk exceeds 0.50% account cap")
         p=UserPosition(id=uuid.uuid4().hex,user_id=user["id"],symbol=req.symbol,side=req.side,quantity=req.quantity,
             entry=entry,stop_loss=sl,take_profit=tp,opened_at=int(time.time()),source="manual")
         db.add(p);db.commit()
@@ -376,7 +444,10 @@ def auto(req:AutoIn,user=Depends(current_user)):
         if not any(feed_is_fresh(s) for s in SYMBOLS):
             raise HTTPException(503,"No live market feed is ready. Connect at least one supported feed before enabling auto trading.")
     with SessionLocal() as db:
-        a=db_account(db,user["id"]);a.auto_enabled=req.enabled;a.risk_pct=req.risk_pct
+        a,positions,floating,equity,risk=calculate_account_metrics(db,user["id"])
+        if req.enabled and risk["status"]!="ACTIVE":
+            raise HTTPException(status_code=403,detail="Risk lock: "+risk["reason"]+". Review risk status before re-enabling.")
+        a.auto_enabled=req.enabled;a.risk_pct=POLICY["risk_per_trade_pct"]
         if req.enabled:a.active_strategy=req.strategy_id or "STR-001"
         db.commit()
     return account_snapshot(user["id"])
