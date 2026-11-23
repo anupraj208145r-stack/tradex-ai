@@ -61,7 +61,8 @@ function paintAccount(account,quotes){
  $("balance").textContent=money(account.balance);$("equity").textContent=money(account.equity);
  $("realized").textContent=money(account.realized_pnl);$("unrealized").textContent=money(account.unrealized_pnl);
  $("realized").className=account.realized_pnl>=0?"good":"bad";$("unrealized").className=account.unrealized_pnl>=0?"good":"bad";
- botRunning=!!account.auto;activeStrategyId=account.active_strategy||activeStrategyId;\n $("botStatus").textContent=account.auto?"● AUTO TRADING RUNNING · "+(account.active_timeframe||"1m"):"● AUTO TRADING STOPPED";
+ botRunning=!!account.auto;activeStrategyId=account.active_strategy||activeStrategyId;
+ $("botStatus").textContent=account.auto?"● AUTO TRADING RUNNING · "+(account.active_timeframe||"1m"):"● AUTO TRADING STOPPED";
  $("autoBtn").disabled=account.auto;$("stopBtn").disabled=!account.auto;
  renderPositions(account.positions,quotes);renderHistory(account.history);
  $("positionCount").textContent=account.positions.length;$("historyCount").textContent=account.history.length;
