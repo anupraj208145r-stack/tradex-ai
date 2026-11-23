@@ -231,11 +231,11 @@ async def lifespan(app:FastAPI):
                 last=candles[symbol][-1];prices[symbol]=last["close"]
                 quotes_meta[symbol]={"symbol":symbol,"price":last["close"],"time":last["time"],"feed":"database","status":"history_only","live":False}
     engine_status="running"
-    background_tasks.extend([asyncio.create_task(market_worker(s)) for s in SYMBOLS])
+    tasks=[asyncio.create_task(market_worker(s)) for s in SYMBOLS]
     try:yield
     finally:
-        for task in background_tasks:task.cancel()
-        await asyncio.gather(*background_tasks,return_exceptions=True)
+        for task in tasks:task.cancel()
+        await asyncio.gather(*tasks,return_exceptions=True)
         engine_status="stopped"
 
 app=FastAPI(title="TradeX AI Paper Trading API",version="0.2.0",lifespan=lifespan)
