@@ -364,8 +364,8 @@
     "name": "Chaikin Money Flow",
     "category": "Volume",
     "rule_summary": "CMF crosses zero",
-    "executable": true,
-    "status": "implemented"
+    "executable": false,
+    "status": "template"
   },
   {
     "id": "STR-047",
@@ -436,8 +436,8 @@
     "name": "VWAP + RSI",
     "category": "Hybrid",
     "rule_summary": "VWAP side with RSI confirmation",
-    "executable": true,
-    "status": "implemented"
+    "executable": false,
+    "status": "template"
   },
   {
     "id": "STR-056",
