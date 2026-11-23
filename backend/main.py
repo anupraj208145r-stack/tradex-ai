@@ -45,6 +45,11 @@ class CustomStrategyIn(BaseModel):
     slow_ema:int=Field(default=21,ge=3,le=200)
     direction:Literal["both","long_only","short_only"]="both"
 
+def feed_is_fresh(symbol:str,max_age_seconds:int=60)->bool:
+    meta=quotes_meta.get(symbol)
+    return bool(meta and providers.STATUS.get(symbol)=="connected" and
+                time.time()-int(meta.get("time",0))<=max_age_seconds)
+
 def db_account(db):
     account=db.get(PaperAccount,1)
     if account is None:
@@ -130,7 +135,7 @@ def evaluate_auto(symbol:str):
     with SessionLocal() as db:
         a=db_account(db)
         if not a.auto_enabled or a.active_strategy!="STR-001":return
-        if any(providers.STATUS.get(s)!="connected" for s in SYMBOLS):return
+        if any(not feed_is_fresh(s) for s in SYMBOLS):return
         if db.scalar(select(Position.id).where(Position.symbol==symbol)) is not None:return
         series=candles[symbol]
         closes=[float(c["close"]) for c in series]
@@ -236,7 +241,7 @@ app.add_middleware(CORSMiddleware,allow_origins=os.getenv("CORS_ORIGINS","http:/
 
 @app.get("/api/health")
 def health():
-    ready={s:bool(s in prices and providers.STATUS.get(s)=="connected") for s in SYMBOLS}
+    ready={s:feed_is_fresh(s) for s in SYMBOLS}
     return {"ok":True,"engine":engine_status,"mode":"PAPER_ONLY","broker_connected":False,
         "feeds":providers.STATUS,"last_errors":providers.LAST_ERROR,"live_ready":ready}
 
@@ -265,7 +270,7 @@ def strategies():return get_strategy_items()
 
 @app.post("/api/orders")
 def order(req:OrderIn):
-    if req.symbol not in prices:raise HTTPException(503,"No market price available yet for this symbol")
+    if req.symbol not in prices or not feed_is_fresh(req.symbol):raise HTTPException(503,"No fresh live market price available yet for this symbol")
     with SessionLocal() as db:
         a=db_account(db)
         if req.quantity*prices[req.symbol]>max(a.balance,0)*5:
@@ -291,7 +296,7 @@ def auto(req:AutoIn):
         if item is None:raise HTTPException(404,"Strategy not found")
         if not item.get("executable"):raise HTTPException(400,"Strategy is not executable")
         if item["id"]!="STR-001":raise HTTPException(400,"Only EMA 9/21 is implemented in this milestone")
-        if any(providers.STATUS.get(s)!="connected" for s in SYMBOLS):
+        if any(not feed_is_fresh(s) for s in SYMBOLS):
             raise HTTPException(503,"Both live feeds must be connected before enabling auto trading")
     with SessionLocal() as db:
         a=db_account(db);a.auto_enabled=req.enabled;a.risk_pct=req.risk_pct
