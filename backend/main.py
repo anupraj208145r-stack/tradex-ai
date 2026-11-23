@@ -4,14 +4,14 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import select, desc
 
-from .db import (init_db, SessionLocal, PaperAccount, Position, Trade, Candle,
-                CustomStrategy)
+from .db import (init_db, SessionLocal, Candle, UserPaperAccount, UserPosition, UserTrade, UserCustomStrategy)
+from .auth import current_user, verify_access_token
 from . import providers
 
 BASE=Path(__file__).parent
@@ -21,7 +21,7 @@ prices:dict[str,float]={}
 quotes_meta:dict[str,dict]={}
 candles:dict[str,list[dict]]={s:[] for s in SYMBOLS}
 current_candle:dict[str,dict]={}
-clients:set[WebSocket]=set()
+clients:dict[WebSocket,str]={}
 market_lock=asyncio.Lock()
 engine_status="starting"
 
@@ -49,11 +49,11 @@ def feed_is_fresh(symbol:str,max_age_seconds:int=60)->bool:
     return bool(meta and meta.get("live") is True and providers.STATUS.get(symbol)=="connected" and
                 time.time()-int(meta.get("time",0))<=max_age_seconds)
 
-def db_account(db):
-    account=db.get(PaperAccount,1)
+def db_account(db,user_id:str):
+    account=db.get(UserPaperAccount,user_id)
     if account is None:
-        account=PaperAccount(id=1,starting_balance=10000,balance=10000,realized_pnl=0,
-                             auto_enabled=False,active_strategy="STR-001",risk_pct=1)
+        account=UserPaperAccount(user_id=user_id,starting_balance=10000,balance=10000,realized_pnl=0,
+                                 auto_enabled=False,active_strategy="STR-001",risk_pct=1)
         db.add(account);db.commit();db.refresh(account)
     return account
 
@@ -67,20 +67,20 @@ def trade_dict(t):
         "entry":t.entry,"exit":t.exit,"pnl":t.pnl,"reason":t.reason,
         "opened_at":t.opened_at,"closed_at":t.closed_at}
 
-def account_snapshot():
+def account_snapshot(user_id:str):
     with SessionLocal() as db:
-        a=db_account(db)
-        positions=[position_dict(p) for p in db.scalars(select(Position)).all()]
-        history=[trade_dict(t) for t in db.scalars(select(Trade).order_by(desc(Trade.closed_at)).limit(100)).all()]
+        a=db_account(db,user_id)
+        positions=[position_dict(p) for p in db.scalars(select(UserPosition).where(UserPosition.user_id==user_id)).all()]
+        history=[trade_dict(t) for t in db.scalars(select(UserTrade).where(UserTrade.user_id==user_id).order_by(desc(UserTrade.closed_at)).limit(100)).all()]
         floating=sum((prices.get(p["symbol"],p["entry"])-p["entry"])*p["quantity"]*(1 if p["side"]=="BUY" else -1) for p in positions)
         return {"balance":round(a.balance,2),"equity":round(a.balance+floating,2),
             "realized_pnl":round(a.realized_pnl,2),"unrealized_pnl":round(floating,2),
             "positions":positions,"history":history,"auto":a.auto_enabled,
             "active_strategy":a.active_strategy,"risk_pct":a.risk_pct}
 
-def get_strategy_items():
+def get_strategy_items(user_id:str):
     with SessionLocal() as db:
-        custom=db.scalars(select(CustomStrategy)).all()
+        custom=db.scalars(select(UserCustomStrategy).where(UserCustomStrategy.user_id==user_id)).all()
         items=[{"id":s.id,"name":s.name,"category":"Custom",
             "rule_summary":f"EMA {s.fast_ema}/{s.slow_ema}; {s.direction}; {s.symbol}",
             "executable":False,"status":"custom_draft"} for s in custom]
@@ -105,14 +105,14 @@ def persist_candle(symbol:str,c:dict,source:str):
             row.close=c["close"];row.volume=c.get("volume",row.volume);row.source=source
         db.commit()
 
-def close_position(position_id:str,reason:str):
+def close_position(user_id:str,position_id:str,reason:str):
     with SessionLocal() as db:
-        p=db.get(Position,position_id)
+        p=db.scalar(select(UserPosition).where(UserPosition.id==position_id,UserPosition.user_id==user_id))
         if p is None:return
         exit_price=prices.get(p.symbol,p.entry)
         pnl=(exit_price-p.entry)*p.quantity*(1 if p.side=="BUY" else -1)
-        a=db_account(db);a.balance+=pnl;a.realized_pnl+=pnl;a.updated_at=int(time.time())
-        db.add(Trade(position_id=p.id,symbol=p.symbol,side=p.side,quantity=p.quantity,
+        a=db_account(db,user_id);a.balance+=pnl;a.realized_pnl+=pnl;a.updated_at=int(time.time())
+        db.add(UserTrade(user_id=user_id,position_id=p.id,symbol=p.symbol,side=p.side,quantity=p.quantity,
             entry=p.entry,exit=exit_price,pnl=round(pnl,2),reason=reason,
             opened_at=p.opened_at,closed_at=int(time.time())))
         db.delete(p);db.commit()
@@ -121,50 +121,47 @@ def check_exits(symbol:str):
     price=prices.get(symbol)
     if price is None:return
     with SessionLocal() as db:
-        positions=db.scalars(select(Position).where(Position.symbol==symbol)).all()
+        positions=db.scalars(select(UserPosition).where(UserPosition.symbol==symbol)).all()
         ids=[]
         for p in positions:
             hit_sl=p.stop_loss is not None and ((p.side=="BUY" and price<=p.stop_loss) or (p.side=="SELL" and price>=p.stop_loss))
             hit_tp=p.take_profit is not None and ((p.side=="BUY" and price>=p.take_profit) or (p.side=="SELL" and price<=p.take_profit))
-            if hit_sl:ids.append((p.id,"stop_loss"))
-            elif hit_tp:ids.append((p.id,"take_profit"))
-    for pid,reason in ids:close_position(pid,reason)
+            if hit_sl:ids.append((p.user_id,p.id,"stop_loss"))
+            elif hit_tp:ids.append((p.user_id,p.id,"take_profit"))
+    for uid,pid,reason in ids:close_position(uid,pid,reason)
 
 def evaluate_auto(symbol:str):
+    if any(not feed_is_fresh(s) for s in SYMBOLS):return
+    series=candles[symbol]
+    closes=[float(c["close"]) for c in series]
+    if len(closes)<22:return
+    fast_now=ema(closes,9);slow_now=ema(closes,21)
+    fast_prev=ema(closes[:-1],9);slow_prev=ema(closes[:-1],21)
+    if None in (fast_now,slow_now,fast_prev,slow_prev):return
+    side="BUY" if fast_prev<=slow_prev and fast_now>slow_now else "SELL" if fast_prev>=slow_prev and fast_now<slow_now else None
+    if side is None:return
+    entry=prices.get(symbol)
+    if entry is None:return
     with SessionLocal() as db:
-        a=db_account(db)
-        if not a.auto_enabled or a.active_strategy!="STR-001":return
-        if any(not feed_is_fresh(s) for s in SYMBOLS):return
-        if db.scalar(select(Position.id).where(Position.symbol==symbol)) is not None:return
-        series=candles[symbol]
-        closes=[float(c["close"]) for c in series]
-        if len(closes)<22:return
-        fast_now=ema(closes,9);slow_now=ema(closes,21)
-        fast_prev=ema(closes[:-1],9);slow_prev=ema(closes[:-1],21)
-        if None in (fast_now,slow_now,fast_prev,slow_prev):return
-        side=None
-        if fast_prev<=slow_prev and fast_now>slow_now:side="BUY"
-        elif fast_prev>=slow_prev and fast_now<slow_now:side="SELL"
-        if side is None:return
-        entry=prices.get(symbol)
-        if entry is None:return
-        stop_distance=entry*0.01
-        risk_cash=a.balance*a.risk_pct/100
-        qty=min(100.0,max(0.001,round(risk_cash/stop_distance,3)))
-        sl=entry-stop_distance if side=="BUY" else entry+stop_distance
-        tp=entry+2*stop_distance if side=="BUY" else entry-2*stop_distance
-        db.add(Position(id=uuid.uuid4().hex,symbol=symbol,side=side,quantity=qty,
-            entry=entry,stop_loss=sl,take_profit=tp,opened_at=int(time.time()),source="auto"))
+        accounts=db.scalars(select(UserPaperAccount).where(UserPaperAccount.auto_enabled.is_(True),UserPaperAccount.active_strategy=="STR-001")).all()
+        for a in accounts:
+            if db.scalar(select(UserPosition.id).where(UserPosition.user_id==a.user_id,UserPosition.symbol==symbol)) is not None:continue
+            stop_distance=entry*0.01
+            risk_cash=a.balance*a.risk_pct/100
+            qty=min(100.0,max(0.001,round(risk_cash/stop_distance,3)))
+            sl=entry-stop_distance if side=="BUY" else entry+stop_distance
+            tp=entry+2*stop_distance if side=="BUY" else entry-2*stop_distance
+            db.add(UserPosition(id=uuid.uuid4().hex,user_id=a.user_id,symbol=symbol,side=side,quantity=qty,
+                entry=entry,stop_loss=sl,take_profit=tp,opened_at=int(time.time()),source="auto"))
         db.commit()
 
 async def publish():
     if not clients:return
-    message={"quotes":quotes_meta,"account":account_snapshot(),"feeds":providers.STATUS}
     dead=[]
-    for ws in list(clients):
-        try:await ws.send_json(message)
+    for ws,user_id in list(clients.items()):
+        try:await ws.send_json({"quotes":quotes_meta,"account":account_snapshot(user_id),"feeds":providers.STATUS})
         except Exception:dead.append(ws)
-    for ws in dead:clients.discard(ws)
+    for ws in dead:clients.pop(ws,None)
 
 async def on_tick(symbol:str,price:float,timestamp:int,source:str):
     if price<=0:return
@@ -216,13 +213,9 @@ async def lifespan(app:FastAPI):
     global engine_status
     init_db()
     with SessionLocal() as db:
-        a=db_account(db)
-        # Resume only when explicitly enabled by deployment configuration.
-        if os.getenv("AUTO_RESUME_ON_RESTART","false").lower() not in ("1","true","yes"):
-            a.auto_enabled=False
+        # Pause every user's automated strategy on restart.
+        db.query(UserPaperAccount).update({UserPaperAccount.auto_enabled:False})
         db.commit()
-        for p in db.scalars(select(Position)).all():
-            pass
         for symbol in SYMBOLS:
             rows=db.scalars(select(Candle).where(Candle.symbol==symbol,Candle.timeframe=="1m").order_by(desc(Candle.time)).limit(1000)).all()
             candles[symbol]=[{"time":r.time,"open":r.open,"high":r.high,"low":r.low,"close":r.close} for r in reversed(rows)]
@@ -246,17 +239,20 @@ def health():
     return {"ok":True,"engine":engine_status,"mode":"PAPER_ONLY","broker_connected":False,
         "feeds":providers.STATUS,"last_errors":providers.LAST_ERROR,"live_ready":ready}
 
+@app.get("/api/me")
+def me(user=Depends(current_user)):return {"id":user["id"],"email":user.get("email"),"phone":user.get("phone")}
+
 @app.get("/api/account")
-def account():return account_snapshot()
+def account(user=Depends(current_user)):return account_snapshot(user["id"])
 
 @app.post("/api/account/reset")
-def reset(req:ResetIn):
+def reset(req:ResetIn,user=Depends(current_user)):
     with SessionLocal() as db:
-        a=db_account(db);a.starting_balance=req.balance;a.balance=req.balance;a.realized_pnl=0
+        uid=user["id"];a=db_account(db,uid);a.starting_balance=req.balance;a.balance=req.balance;a.realized_pnl=0
         a.auto_enabled=False;a.updated_at=int(time.time())
-        for p in db.scalars(select(Position)).all():db.delete(p)
-        db.query(Trade).delete();db.commit()
-    return account_snapshot()
+        for p in db.scalars(select(UserPosition).where(UserPosition.user_id==uid)).all():db.delete(p)
+        db.query(UserTrade).filter(UserTrade.user_id==uid).delete();db.commit()
+    return account_snapshot(user["id"])
 
 @app.get("/api/quotes")
 def quotes():return quotes_meta
@@ -267,48 +263,48 @@ def get_candles(symbol:str):
     return candles[symbol]+([current_candle[symbol]] if symbol in current_candle else [])
 
 @app.get("/api/strategies")
-def strategies():return get_strategy_items()
+def strategies(user=Depends(current_user)):return get_strategy_items(user["id"])
 
 @app.post("/api/orders")
-def order(req:OrderIn):
+def order(req:OrderIn,user=Depends(current_user)):
     if req.symbol not in prices or not feed_is_fresh(req.symbol):raise HTTPException(503,"No fresh live market price available yet for this symbol")
     with SessionLocal() as db:
-        a=db_account(db)
+        a=db_account(db,user["id"])
         if req.quantity*prices[req.symbol]>max(a.balance,0)*5:
             raise HTTPException(400,"Paper order notional exceeds 5x account balance")
-        p=Position(id=uuid.uuid4().hex,symbol=req.symbol,side=req.side,quantity=req.quantity,
+        p=UserPosition(id=uuid.uuid4().hex,user_id=user["id"],symbol=req.symbol,side=req.side,quantity=req.quantity,
             entry=prices[req.symbol],stop_loss=req.stop_loss,take_profit=req.take_profit,
             opened_at=int(time.time()),source="manual")
         db.add(p);db.commit()
-    return {"accepted":True,"mode":"PAPER_ONLY","position":position_dict(p),"account":account_snapshot()}
+    return {"accepted":True,"mode":"PAPER_ONLY","position":position_dict(p),"account":account_snapshot(user["id"])}
 
 @app.post("/api/positions/{position_id}/close")
-def close(position_id:str):
+def close(position_id:str,user=Depends(current_user)):
     with SessionLocal() as db:
-        p=db.get(Position,position_id)
+        p=db.scalar(select(UserPosition).where(UserPosition.id==position_id,UserPosition.user_id==user["id"]))
         if p is None:raise HTTPException(404,"Position not found")
-    close_position(position_id,"manual")
-    return account_snapshot()
+    close_position(user["id"],position_id,"manual")
+    return account_snapshot(user["id"])
 
 @app.post("/api/auto")
-def auto(req:AutoIn):
+def auto(req:AutoIn,user=Depends(current_user)):
     if req.enabled:
-        item=next((s for s in get_strategy_items() if s["id"]==(req.strategy_id or "STR-001")),None)
+        item=next((s for s in get_strategy_items(user["id"]) if s["id"]==(req.strategy_id or "STR-001")),None)
         if item is None:raise HTTPException(404,"Strategy not found")
         if not item.get("executable"):raise HTTPException(400,"Strategy is not executable")
         if item["id"]!="STR-001":raise HTTPException(400,"Only EMA 9/21 is implemented in this milestone")
         if any(not feed_is_fresh(s) for s in SYMBOLS):
             raise HTTPException(503,"Both live feeds must be connected before enabling auto trading")
     with SessionLocal() as db:
-        a=db_account(db);a.auto_enabled=req.enabled;a.risk_pct=req.risk_pct
+        a=db_account(db,user["id"]);a.auto_enabled=req.enabled;a.risk_pct=req.risk_pct
         if req.enabled:a.active_strategy=req.strategy_id or "STR-001"
         db.commit()
-    return account_snapshot()
+    return account_snapshot(user["id"])
 
 @app.post("/api/strategies/custom")
-def custom(req:CustomStrategyIn):
+def custom(req:CustomStrategyIn,user=Depends(current_user)):
     if req.fast_ema>=req.slow_ema:raise HTTPException(400,"Fast EMA must be smaller than slow EMA")
-    item=CustomStrategy(id="CUSTOM-"+uuid.uuid4().hex[:10],name=req.name,symbol=req.symbol,
+    item=UserCustomStrategy(id="CUSTOM-"+uuid.uuid4().hex[:10],user_id=user["id"],name=req.name,symbol=req.symbol,
         fast_ema=req.fast_ema,slow_ema=req.slow_ema,direction=req.direction,created_at=int(time.time()))
     with SessionLocal() as db:db.add(item);db.commit()
     return {"id":item.id,"name":item.name,"category":"Custom",
@@ -317,11 +313,18 @@ def custom(req:CustomStrategyIn):
 
 @app.websocket("/ws/market")
 async def ws_market(ws:WebSocket):
-    await ws.accept();clients.add(ws)
+    token=ws.query_params.get("access_token")
+    if not token:
+        await ws.close(code=4401);return
+    try:user=verify_access_token(token)
+    except HTTPException:
+        await ws.close(code=4401);return
+    uid=user["id"]
+    await ws.accept();clients[ws]=uid
     try:
-        await ws.send_json({"quotes":quotes_meta,"account":account_snapshot(),"feeds":providers.STATUS})
+        await ws.send_json({"quotes":quotes_meta,"account":account_snapshot(uid),"feeds":providers.STATUS})
         while True:await ws.receive_text()
-    except WebSocketDisconnect:clients.discard(ws)
-    except Exception:clients.discard(ws)
+    except WebSocketDisconnect:clients.pop(ws,None)
+    except Exception:clients.pop(ws,None)
 
 app.mount("/",StaticFiles(directory=BASE.parent/"frontend",html=True),name="frontend")
