@@ -15,6 +15,7 @@ from .db import (init_db, SessionLocal, Candle, UserPaperAccount, UserPosition, 
 from .auth import current_user, verify_access_token
 import httpx
 from . import providers
+from .strategy_engine import signal_for, SUPPORTED_STRATEGIES, atr_value
 
 BASE=Path(__file__).parent
 CATALOG=json.loads((BASE/"strategies.json").read_text())
@@ -123,7 +124,7 @@ def get_strategy_items(user_id:str):
         custom=db.scalars(select(UserCustomStrategy).where(UserCustomStrategy.user_id==user_id)).all()
         items=[{"id":s.id,"name":s.name,"category":"Custom",
             "rule_summary":f"EMA {s.fast_ema}/{s.slow_ema}; {s.direction}; {s.symbol}",
-            "executable":False,"status":"custom_draft"} for s in custom]
+            "executable":True,"status":"implemented"} for s in custom]
     return CATALOG+items
 
 def ema(values:list[float],period:int):
@@ -170,29 +171,58 @@ def check_exits(symbol:str):
             elif hit_tp:ids.append((p.user_id,p.id,"take_profit"))
     for uid,pid,reason in ids:close_position(uid,pid,reason)
 
+def adaptive_levels(symbol:str,side:str,entry:float,series:list[dict]):
+    atr=atr_value(series,14)
+    if atr is None or atr<=0:return None
+    distance=max(atr*1.5,entry*0.0005)
+    return (entry-distance,entry+distance*2) if side=="BUY" else (entry+distance,entry-distance*2)
+
 def evaluate_auto(symbol:str):
-    if any(not feed_is_fresh(s) for s in SYMBOLS):return
+    if not feed_is_fresh(symbol):return
     series=candles[symbol]
-    closes=[float(c["close"]) for c in series]
-    if len(closes)<22:return
-    fast_now=ema(closes,9);slow_now=ema(closes,21)
-    fast_prev=ema(closes[:-1],9);slow_prev=ema(closes[:-1],21)
-    if None in (fast_now,slow_now,fast_prev,slow_prev):return
-    side="BUY" if fast_prev<=slow_prev and fast_now>slow_now else "SELL" if fast_prev>=slow_prev and fast_now<slow_now else None
-    if side is None:return
-    entry=prices.get(symbol)
-    if entry is None:return
+    if len(series)<55:return
     with SessionLocal() as db:
-        accounts=db.scalars(select(UserPaperAccount).where(UserPaperAccount.auto_enabled.is_(True),UserPaperAccount.active_strategy=="STR-001")).all()
-        for a in accounts:
-            if db.scalar(select(UserPosition.id).where(UserPosition.user_id==a.user_id,UserPosition.symbol==symbol)) is not None:continue
-            stop_distance=entry*0.01
-            risk_cash=a.balance*a.risk_pct/100
-            qty=min(100.0,max(0.001,round(risk_cash/stop_distance,3)))
-            sl=entry-stop_distance if side=="BUY" else entry+stop_distance
-            tp=entry+2*stop_distance if side=="BUY" else entry-2*stop_distance
-            db.add(UserPosition(id=uuid.uuid4().hex,user_id=a.user_id,symbol=symbol,side=side,quantity=qty,
+        accounts=db.scalars(select(UserPaperAccount).where(UserPaperAccount.auto_enabled.is_(True))).all()
+        for account in accounts:
+            if db.scalar(select(UserPosition.id).where(UserPosition.user_id==account.user_id,UserPosition.symbol==symbol)) is not None:continue
+            strategy_id=account.active_strategy
+            if strategy_id.startswith("CUSTOM-"):
+                custom=db.get(UserCustomStrategy,strategy_id)
+                if custom is None or custom.user_id!=account.user_id:continue
+                closes=[float(c["close"]) for c in series]
+                fast,slow=ema(closes,custom.fast_ema),ema(closes,custom.slow_ema)
+                fp,sp=ema(closes[:-1],custom.fast_ema),ema(closes[:-1],custom.slow_ema)
+                side="BUY" if fp is not None and sp is not None and fp<=sp and fast>slow else "SELL" if fp is not None and sp is not None and fp>=sp and fast<slow else None
+                if side=="BUY" and custom.direction=="short_only":side=None
+                if side=="SELL" and custom.direction=="long_only":side=None
+                if custom.symbol not in (symbol,"BOTH"):side=None
+            else:
+                if strategy_id not in SUPPORTED_STRATEGIES:continue
+                side=signal_for(strategy_id,series)
+            if side is None:continue
+            entry=prices.get(symbol)
+            if entry is None:continue
+            levels=adaptive_levels(symbol,side,entry,series)
+            if levels is None:continue
+            sl,tp=levels
+            risk_cash=max(account.balance,0)*account.risk_pct/100
+            qty=min(100.0,round(risk_cash/abs(entry-sl),6))
+            qty=min(qty,max(account.balance,0)*5/entry)
+            if qty<0.001:continue
+            db.add(UserPosition(id=uuid.uuid4().hex,user_id=account.user_id,symbol=symbol,side=side,quantity=qty,
                 entry=entry,stop_loss=sl,take_profit=tp,opened_at=int(time.time()),source="auto"))
+        db.commit()
+
+def trail_auto_positions(symbol:str):
+    atr=atr_value(candles[symbol],14);price=prices.get(symbol)
+    if atr is None or atr<=0 or price is None:return
+    distance=atr*1.5
+    with SessionLocal() as db:
+        positions=db.scalars(select(UserPosition).where(UserPosition.symbol==symbol,UserPosition.source=="auto")).all()
+        for p in positions:
+            candidate=price-distance if p.side=="BUY" else price+distance
+            if p.side=="BUY" and candidate>p.entry and (p.stop_loss is None or candidate>p.stop_loss):p.stop_loss=candidate
+            if p.side=="SELL" and candidate<p.entry and (p.stop_loss is None or candidate<p.stop_loss):p.stop_loss=candidate
         db.commit()
 
 async def publish():
@@ -224,6 +254,7 @@ async def on_tick(symbol:str,price:float,timestamp:int,source:str):
             current={"time":minute,"open":price,"high":price,"low":price,"close":price,"volume":0}
             current_candle[symbol]=current
         if closed:evaluate_auto(symbol)
+        trail_auto_positions(symbol)
         check_exits(symbol)
     await publish()
 
@@ -312,9 +343,16 @@ def order(req:OrderIn,user=Depends(current_user)):
         a=db_account(db,user["id"])
         if req.quantity*prices[req.symbol]>max(a.balance,0)*5:
             raise HTTPException(400,"Paper order notional exceeds 5x account balance")
+        entry=prices[req.symbol]
+        sl,tp=req.stop_loss,req.take_profit
+        if sl is None and tp is None:
+            levels=adaptive_levels(req.symbol,req.side,entry,candles[req.symbol])
+            if levels is None:raise HTTPException(status_code=503,detail="Not enough candle history to calculate adaptive SL/TP")
+            sl,tp=levels
+        if sl is not None and ((req.side=="BUY" and sl>=entry) or (req.side=="SELL" and sl<=entry)):raise HTTPException(status_code=422,detail="Stop loss must be below entry for BUY and above entry for SELL")
+        if tp is not None and ((req.side=="BUY" and tp<=entry) or (req.side=="SELL" and tp>=entry)):raise HTTPException(status_code=422,detail="Take profit must be above entry for BUY and below entry for SELL")
         p=UserPosition(id=uuid.uuid4().hex,user_id=user["id"],symbol=req.symbol,side=req.side,quantity=req.quantity,
-            entry=prices[req.symbol],stop_loss=req.stop_loss,take_profit=req.take_profit,
-            opened_at=int(time.time()),source="manual")
+            entry=entry,stop_loss=sl,take_profit=tp,opened_at=int(time.time()),source="manual")
         db.add(p);db.commit()
     return {"accepted":True,"mode":"PAPER_ONLY","position":position_dict(p),"account":account_snapshot(user["id"])}
 
