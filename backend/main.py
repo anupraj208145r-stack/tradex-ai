@@ -443,7 +443,7 @@ def update_support_ticket(ticket_id:str,req:SupportUpdateIn,user=Depends(require
         customer_email=ticket.email;customer_name=ticket.name;ticket_subject=ticket.subject;current_status=ticket.status
         db.commit()
     notified=send_support_email(customer_email,f"TradeX AI support update: {ticket_id}",
-        f"Hi {customer_name},\\n\\nYour support request #{ticket_id} ({ticket_subject}) is now marked: {current_status.replace('_',' ').title()}.\\n\\nTradeX AI Support")
+        f"Hi {customer_name},\n\nYour support request #{ticket_id} ({ticket_subject}) is now marked: {current_status.replace('_',' ').title()}.\n\nTradeX AI Support")
     return {"ok":True,"id":ticket_id,"status":current_status,"customer_notified":notified}
 
 
