@@ -79,10 +79,10 @@ async def gold_stream(on_tick: TickCallback):
                 STATUS["XAUUSD"]="connected"; LAST_ERROR["XAUUSD"]=None; delay=1
                 try:
                     async for raw in ws:
-                    message=json.loads(raw)
-                    if message.get("event")=="price" and message.get("symbol") in ("XAU/USD","XAUUSD"):
-                        await on_tick("XAUUSD",float(message["price"]),
-                            int(message.get("timestamp") or time.time()),"twelvedata")
+                        message=json.loads(raw)
+                        if message.get("event")=="price" and message.get("symbol") in ("XAU/USD","XAUUSD"):
+                            await on_tick("XAUUSD",float(message["price"]),
+                                int(message.get("timestamp") or time.time()),"twelvedata")
                         elif message.get("status")=="error" or message.get("event")=="error":
                             raise RuntimeError(message.get("message") or str(message))
                 finally:
