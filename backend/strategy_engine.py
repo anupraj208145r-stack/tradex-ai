@@ -178,7 +178,7 @@ def signal_for(strategy_id:str,candles:list[dict])->str|None:
     if strategy_id=="STR-020":
         v=_willr(c); old=_willr(c[:-1])
         return "BUY" if old is not None and old<-80 and v is not None and v>=-80 else "SELL" if old is not None and old>-20 and v is not None and v<=-20 else None
-    if strategy_id in ("STR-055"):
+    if strategy_id in ("STR-022","STR-023","STR-024","STR-055"):
         v=_vwap(c); old=_vwap(c[:-1])
         if v is None or old is None:return None
         if strategy_id=="STR-022":
@@ -212,7 +212,7 @@ def signal_for(strategy_id:str,candles:list[dict])->str|None:
     if strategy_id=="STR-044":
         ha=[((v["open"]+v["close"])/2,(v["high"]+v["low"]+v["open"]+v["close"])/4) for v in c[-3:]]
         return "BUY" if ha[-1][1]>ha[-1][0] and ha[-2][1]<=ha[-2][0] else "SELL" if ha[-1][1]<ha[-1][0] and ha[-2][1]>=ha[-2][0] else None
-    if strategy_id in ("STR-046"):
+    if strategy_id in ("STR-045","STR-046"):
         vols=[float(v.get("volume",0)) for v in c[-21:-1]];vol=float(c[-1].get("volume",0))
         if strategy_id=="STR-045":
             return "BUY" if vols and vol>2*(sum(vols)/len(vols)) and q>p else "SELL" if vols and vol>2*(sum(vols)/len(vols)) and q<p else None
@@ -237,9 +237,9 @@ def signal_for(strategy_id:str,candles:list[dict])->str|None:
 SUPPORTED_STRATEGIES = {
  "STR-001","STR-002","STR-003","STR-004","STR-005","STR-006",
  "STR-010","STR-011","STR-012","STR-013","STR-014","STR-015","STR-017",
- "STR-019","STR-020","STR-022","STR-023","STR-024","STR-025",
+ "STR-019","STR-020","STR-025",
  "STR-033","STR-034","STR-035","STR-036","STR-037","STR-038","STR-039",
- "STR-040","STR-044","STR-045","STR-047","STR-048","STR-049",
+ "STR-040","STR-044","STR-047","STR-048","STR-049",
  "STR-050","STR-052","STR-053","STR-056","STR-057"
 }
 
