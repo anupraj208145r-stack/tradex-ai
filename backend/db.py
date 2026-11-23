@@ -58,6 +58,16 @@ class Trade(Base):
     opened_at: Mapped[int] = mapped_column(BigInteger)
     closed_at: Mapped[int] = mapped_column(BigInteger)
 
+class CustomStrategy(Base):
+    __tablename__ = "custom_strategies"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(80))
+    symbol: Mapped[str] = mapped_column(String(16))
+    fast_ema: Mapped[int] = mapped_column(Integer)
+    slow_ema: Mapped[int] = mapped_column(Integer)
+    direction: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[int] = mapped_column(BigInteger)
+
 class Candle(Base):
     __tablename__ = "market_candles"
     symbol: Mapped[str] = mapped_column(String(16), primary_key=True)
