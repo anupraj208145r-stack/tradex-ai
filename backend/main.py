@@ -345,10 +345,11 @@ def order(req:OrderIn,user=Depends(current_user)):
             raise HTTPException(400,"Paper order notional exceeds 5x account balance")
         entry=prices[req.symbol]
         sl,tp=req.stop_loss,req.take_profit
-        if sl is None and tp is None:
+        if sl is None or tp is None:
             levels=adaptive_levels(req.symbol,req.side,entry,candles[req.symbol])
             if levels is None:raise HTTPException(status_code=503,detail="Not enough candle history to calculate adaptive SL/TP")
-            sl,tp=levels
+            if sl is None:sl=levels[0]
+            if tp is None:tp=levels[1]
         if sl is not None and ((req.side=="BUY" and sl>=entry) or (req.side=="SELL" and sl<=entry)):raise HTTPException(status_code=422,detail="Stop loss must be below entry for BUY and above entry for SELL")
         if tp is not None and ((req.side=="BUY" and tp<=entry) or (req.side=="SELL" and tp>=entry)):raise HTTPException(status_code=422,detail="Take profit must be above entry for BUY and below entry for SELL")
         p=UserPosition(id=uuid.uuid4().hex,user_id=user["id"],symbol=req.symbol,side=req.side,quantity=req.quantity,
