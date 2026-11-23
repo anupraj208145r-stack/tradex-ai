@@ -1,84 +1,139 @@
-# TradeX AI — Paper Trading Starter
+# TradeX AI — Live-feed Paper Trading milestone
 
-Responsive, broker-free paper-trading prototype for XAUUSD and BTCUSD.
+A broker-free paper-trading terminal for XAUUSD and BTCUSD. This branch adds market-data adapters, persistent account/trade storage, and a restartable backend service.
 
-> **Safety boundary:** this application is paper-only by design. It contains no broker SDK, live-order endpoint, deposit flow, withdrawal flow, or real-money execution path.
+> **Paper-only by design:** there is no broker SDK, broker credential, real order endpoint, deposit flow, withdrawal flow, or real-money execution.
 
-## Current build
+## What's added in this milestone
 
-- Responsive dashboard layout for desktop and mobile browsers.
-- XAUUSD and BTCUSD simulated candlestick charts using Lightweight Charts.
-- A $10,000 default virtual starting balance.
-- Manual simulated BUY/SELL orders and manual position close.
-- Editable/resettable paper balance.
-- Open positions, unrealized P&L, realized P&L, and trade history.
-- 67 strategy catalogue records.
-- Auto-paper-trading starter implementation for the EMA 9/21 crossover (STR-001).
-- Custom EMA strategy draft form.
-- FastAPI backend and Dockerfile.
+- Coinbase BTC-USD market data via public WebSocket ticker feed and REST candle history.
+- XAU/USD market data via Twelve Data REST history and price WebSocket.
+- Explicit per-symbol feed health and last-error reporting. No synthetic-price fallback.
+- Persistent PostgreSQL storage for account, positions, closed trades, candles, and custom strategy drafts.
+- SQLite fallback for local development.
+- Docker Compose with PostgreSQL, app restart policy, health checks, and a named persistent database volume.
+- Reconnecting WebSocket clients with exponential backoff.
+- One-minute candle aggregation and database persistence.
+- Auto-paper trading gated on both market feeds being connected.
+- Risk-based EMA 9/21 crossover demo with a 1% stop distance and 2R target.
+- Automatic position exits when stop-loss or take-profit levels are touched.
+- Auto trading is paused after restart by default; explicit opt-in is available after recovery testing.
+- Dashboard feed status indicators for XAUUSD and BTCUSD.
 
-## Important limitations — read before use
+## Market data providers
 
-1. **Prices are synthetic.** The starter generates demo prices in-process. They are not live XAUUSD or BTCUSD quotes. Do not use this feed to assess profitability or strategy quality.
-2. **Only one automated strategy is implemented.** STR-001 is the initial EMA crossover starter. Most of the other catalogue entries are descriptive templates and are not yet executable.
-3. **Gautam Jha entries are research placeholders.** They do not claim to reproduce or represent Gautam Jha's complete strategies. The source material must be reviewed and converted into explicit, deterministic rules before implementation. No paid/private material is included.
-4. **Custom strategies are drafts.** The current form saves an EMA configuration in server memory; it does not yet compile a general-purpose strategy or run a custom strategy.
-5. **State is in memory.** Balance, positions, history, and custom drafts are reset when the API process restarts. There is no database persistence or multi-user isolation.
-6. **Prototype security only.** There is no authentication, authorization, audit log, hardened CORS policy, production rate-limiting, or production monitoring. Do not expose this prototype publicly with user data.
-7. **Trading costs are not modelled.** Spread, slippage, commissions, swap/financing, contract specifications, market sessions, and realistic order-fill rules are not implemented.
+### BTCUSD
 
-## Run locally
+Uses Coinbase's public BTC-USD market data. The WebSocket ticker channel streams price updates; REST candles are used to initialize chart history. This is a BTC-USD spot reference price, not a CFD broker's BTCUSD contract quote.
 
-Requires Python 3.10+.
+References:
+- [Coinbase Advanced Trade WebSocket feeds](https://help.coinbase.com/en/developer-platform/websocket-feeds/advanced-trade)
+- [Coinbase Exchange WebSocket feeds](https://help.coinbase.com/en/developer-platform/websocket-feeds/exchange)
 
-```bash
+### XAUUSD
+
+Uses Twelve Data's XAU/USD symbol. You must supply your own API key and have a plan that permits real-time WebSocket access and this instrument. Twelve Data currently documents WebSocket access starting with its Pro plan; verify the current plan, symbol entitlement, and data licence before subscribing. WebSocket usage consumes credits.
+
+References:
+- [Twelve Data WebSocket documentation](https://twelvedata.com/docs/websocket/websocket-getting-started)
+- [Twelve Data WebSocket access and plans](https://support.twelvedata.com/en/articles/5609168-introduction-to-twelve-data)
+- [Twelve Data pricing](https://twelvedata.com/pricing)
+
+**Important:** XAU/USD spot data is a market-data reference, not necessarily the same as any broker's XAUUSD CFD bid/ask. The current paper simulator does not yet model bid/ask spread, CFD contract size, swaps, commissions, or slippage. Do not interpret its P&L as broker-equivalent.
+
+## Local setup (Windows PowerShell)
+
+1. Install Python 3.12+ and Docker Desktop.
+2. Clone this repository and create a local environment file:
+
+```powershell
+git clone https://github.com/anupraj208145r-stack/tradex-ai.git
+cd tradex-ai
+Copy-Item .env.example .env
+```
+
+3. Edit `.env` and set:
+   - `POSTGRES_PASSWORD`: a long random password.
+   - `TWELVEDATA_API_KEY`: your Twelve Data API key.
+   - `CORS_ORIGINS`: your exact app origin(s).
+
+4. Start the stack:
+
+```powershell
+docker compose up --build -d
+docker compose logs -f app
+```
+
+5. Open http://localhost:8000
+
+Health status: http://localhost:8000/api/health
+
+To stop without deleting the database volume:
+
+```powershell
+docker compose down
+```
+
+To permanently delete the local paper database volume (destructive):
+
+```powershell
+docker compose down -v
+```
+
+## Without Docker (SQLite development mode)
+
+```powershell
 python -m venv .venv
-
-# Windows PowerShell
-.venv\Scripts\Activate.ps1
-
-# macOS / Linux
-source .venv/bin/activate
-
-pip install -r requirements.txt
+.venv\\Scripts\\Activate.ps1
+pip install -r requirements-dev.txt
+$env:DATABASE_URL="sqlite:///./data/tradex.db"
 uvicorn backend.main:app --reload
 ```
 
-Open http://127.0.0.1:8000
+SQLite is suitable for local single-process development only. Use PostgreSQL for hosted deployments.
 
-API health check: http://127.0.0.1:8000/api/health
+## Important environment variables
 
-## Run with Docker
+- `DATABASE_URL`: PostgreSQL URL for persistent deployments, SQLite URL for local tests.
+- `TWELVEDATA_API_KEY`: required for XAU/USD feed.
+- `CORS_ORIGINS`: comma-separated exact origins allowed by the API.
+- `AUTO_RESUME_ON_RESTART`: defaults to false. Set true only after you have tested recovery, alerting, and market-feed readiness on your own host.
 
-```bash
-docker build -t tradex-ai .
-docker run --rm -p 8000:8000 tradex-ai
-```
+Never commit `.env` or API keys.
 
-Then open http://127.0.0.1:8000.
+## API
 
-## API endpoints
+- `GET /api/health` — engine, feed status, live readiness, and last provider errors.
+- `GET /api/account` — persistent paper account, positions, and trade history.
+- `POST /api/account/reset` — reset virtual balance and clear positions/history.
+- `GET /api/quotes` — latest provider quotes.
+- `GET /api/candles/{symbol}` — stored and current one-minute candles.
+- `GET /api/strategies` — strategy catalogue and saved custom drafts.
+- `POST /api/orders` — open a simulated paper position; rejected if no quote is available.
+- `POST /api/positions/{position_id}/close` — close a paper position.
+- `POST /api/auto` — start/stop the EMA 9/21 paper strategy. Both feeds must be connected.
+- `POST /api/strategies/custom` — save a custom EMA draft (not executable yet).
+- `WS /ws/market` — market/account push stream.
 
-- `GET /api/health` — reports PAPER_ONLY mode and demo-feed status.
-- `GET /api/account` — account balance, equity, open positions, and history.
-- `POST /api/account/reset` — reset paper balance and clear positions/history.
-- `GET /api/quotes` — current synthetic demo quotes.
-- `GET /api/candles/{symbol}` — simulator candles for XAUUSD or BTCUSD.
-- `GET /api/strategies` — strategy catalogue.
-- `POST /api/orders` — open a simulated manual position.
-- `POST /api/positions/{position_id}/close` — close a simulated position.
-- `POST /api/auto` — start/stop the paper auto engine.
-- `POST /api/strategies/custom` — save a custom EMA draft.
-- `WS /ws/market` — market/account message stream.
+## Current limitations and safety
 
-## Next engineering milestones
+1. The catalogue still contains 67 records, but only EMA 9/21 is implemented as an auto strategy. Other entries are not executable.
+2. Gautam Jha entries remain research placeholders. No claim is made that these are his complete strategies. Rules must be verified from public source material and translated into deterministic specifications before coding.
+3. Custom strategies are persisted as drafts; there is not yet a general strategy compiler.
+4. This is a single shared paper account, not a multi-user product. Authentication, user isolation, roles, and session management are not yet implemented.
+5. The database uses SQLAlchemy `create_all` for this milestone. Add Alembic migrations before production schema changes.
+6. Provider feed status means a WebSocket connection was established; it is not an SLA or guarantee of complete market coverage. Monitor timestamps and stale-feed conditions.
+7. The current simulator uses last-traded/reference prices for fills. Spread, slippage, tick-size, contract size, financing, and trading-session behavior need instrument-specific modelling.
+8. A continuously running process requires an always-on host, durable PostgreSQL, restart policy, secrets management, monitoring, and provider entitlement. A local laptop or serverless static deployment alone does not provide this.
+9. No strategy should be described as profitable without reproducible backtests, realistic transaction costs, walk-forward analysis, and out-of-sample validation.
 
-1. Select a licensed, reliable XAUUSD quote source and a clearly specified BTC/USD feed; keep credentials server-side.
-2. Build robust candle aggregation and model bid/ask, spread, slippage, commissions, swaps, and instrument contract details.
-3. Add database persistence, user authentication, per-user paper accounts, and immutable trade/audit events.
-4. Implement a validated strategy DSL and custom strategy compiler.
-5. Implement the strategy library one-by-one with unit tests and deterministic entry/exit logic.
-6. Add historical backtesting, walk-forward validation, out-of-sample tests, realistic costs, and downloadable reports.
-7. Harden deployment, add rate limits, secrets management, monitoring, and CI checks.
+## Next milestones
 
-No strategy should be described as profitable without reproducible, out-of-sample evidence. This project is educational software, not investment advice.
+- Bid/ask-aware execution simulator and symbol-specific contract metadata.
+- Historical data backfill, timeframe aggregation, and stale-feed circuit breakers.
+- General custom-strategy DSL/compiler and executable strategy test harness.
+- Backtesting and walk-forward validation.
+- Authentication, per-user accounts, audit trail, and admin controls.
+- Production monitoring, alerting, backup/restore drills, Alembic migrations, and deployment hardening.
+
+Educational software only. Not investment advice.

@@ -12,7 +12,7 @@ function initChart(){
 async function loadCandles(){candles=await api("/api/candles/"+symbol);candleSeries.setData(candles);chart.timeScale().fitContent();const last=candles[candles.length-1];$("lastPrice").textContent=Number(last.close).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});}
 function updateChart(price){const last=candles[candles.length-1];if(!last)return;const t=Math.floor(Date.now()/1000);const c={time:Math.max(t,last.time+1),open:last.close,high:Math.max(last.close,price),low:Math.min(last.close,price),close:price};candleSeries.update(c);candles.push(c);if(candles.length>300)candles.shift();$("lastPrice").textContent=Number(price).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});}
 function renderPositions(positions,quotes){
- $("positionsBody").innerHTML=positions.length?positions.map(p=>{const mark=quotes[p.symbol].price;const pnl=(mark-p.entry)*p.quantity*(p.side==="BUY"?1:-1);return '<tr><td><b>'+p.symbol+'</b></td><td class="'+(p.side==="BUY"?"side-buy":"side-sell")+'">'+p.side+'</td><td>'+p.quantity+'</td><td>'+p.entry.toFixed(2)+'</td><td>'+mark.toFixed(2)+'</td><td class="'+(pnl>=0?"good":"bad")+'">'+money(pnl)+'</td><td><button class="close" data-close="'+p.id+'">Close</button></td></tr>';}).join(""):'<tr><td colspan="7" class="empty">No open positions</td></tr>';
+ $("positionsBody").innerHTML=positions.length?positions.map(p=>{const mark=quotes[p.symbol]?.price ?? p.entry;const pnl=(mark-p.entry)*p.quantity*(p.side==="BUY"?1:-1);return '<tr><td><b>'+p.symbol+'</b></td><td class="'+(p.side==="BUY"?"side-buy":"side-sell")+'">'+p.side+'</td><td>'+p.quantity+'</td><td>'+p.entry.toFixed(2)+'</td><td>'+mark.toFixed(2)+'</td><td class="'+(pnl>=0?"good":"bad")+'">'+money(pnl)+'</td><td><button class="close" data-close="'+p.id+'">Close</button></td></tr>';}).join(""):'<tr><td colspan="7" class="empty">No open positions</td></tr>';
 }
 function renderHistory(history){$("historyBody").innerHTML=history.length?history.slice().reverse().map(p=>'<tr><td><b>'+p.symbol+'</b></td><td>'+p.side+'</td><td>'+p.entry.toFixed(2)+'</td><td>'+p.exit.toFixed(2)+'</td><td class="'+(p.pnl>=0?"good":"bad")+'">'+money(p.pnl)+'</td><td>'+p.reason+'</td></tr>').join(""):'<tr><td colspan="6" class="empty">No completed trades</td></tr>';}
 async function refresh(){
@@ -33,6 +33,17 @@ function renderStrategies(){
  $("strategyList").innerHTML=list.map(s=>'<div class="strategy"><div><b>'+s.name+'</b><small>'+s.category+' · '+s.rule_summary+'</small></div><em>'+(s.executable?"READY · DEMO":s.status==="research_required"?"RESEARCH ONLY":"TEMPLATE ONLY")+'</em></div>').join("");
 }
 async function loadStrategies(){strategies=await api("/api/strategies");const runnable=strategies.filter(s=>s.executable);$("autoStrategy").innerHTML=runnable.map(s=>'<option value="'+s.id+'">'+s.name+'</option>').join("");renderStrategies();}
+async function refreshFeeds(){
+ try{
+  const health=await api("/api/health");
+  const label=(s)=>health.live_ready?.[s]?"LIVE":health.feeds[s]==="missing_credentials"?"API KEY REQUIRED":health.feeds[s]==="connected"?"STALE · WAITING FOR TICK":health.feeds[s].toUpperCase();
+  $("xauFeed").textContent="XAUUSD · "+label("XAUUSD");
+  $("btcFeed").textContent="BTCUSD · "+label("BTCUSD");
+  const live=Object.values(health.live_ready||{}).every(Boolean);
+  $("feedStatus").textContent=live?"LIVE MARKET DATA":"LIVE FEEDS NOT READY";
+  $("feedStatus").classList.toggle("live",live);
+ }catch(error){$("feedStatus").textContent="FEED STATUS UNAVAILABLE";}
+}
 async function place(side){
  try{const body={symbol:$("orderSymbol").value,side,quantity:Number($("quantity").value),stop_loss:$("sl").value?Number($("sl").value):null,take_profit:$("tp").value?Number($("tp").value):null};await api("/api/orders",{method:"POST",body:JSON.stringify(body)});toast(side+" paper order opened");await refresh();}catch(e){toast(e.message);}
 }
@@ -45,5 +56,5 @@ $("strategySearch").oninput=renderStrategies;
 $("saveCustom").onclick=async()=>{try{const body={name:$("customName").value,symbol:"BOTH",fast_ema:Number($("fastEma").value),slow_ema:Number($("slowEma").value),direction:"both"};const item=await api("/api/strategies/custom",{method:"POST",body:JSON.stringify(body)});strategies.push(item);renderStrategies();toast("Custom strategy saved as a draft");}catch(e){toast(e.message);}};
 $("positionsBody").onclick=async event=>{const id=event.target.dataset.close;if(id){try{await api("/api/positions/"+id+"/close",{method:"POST"});toast("Position closed");await refresh();}catch(e){toast(e.message);}}};
 document.querySelectorAll("[data-symbol]").forEach(button=>button.onclick=async()=>{symbol=button.dataset.symbol;document.querySelectorAll("[data-symbol]").forEach(b=>b.classList.toggle("active",b===button));$("chartTitle").textContent=symbol+(symbol==="XAUUSD"?" · Gold / US Dollar":" · Bitcoin / US Dollar");await loadCandles();});
-async function boot(){initChart();await loadStrategies();await loadCandles();await refresh();setInterval(async()=>{try{const result=await refresh();updateChart(result.quotes[symbol].price);}catch(error){console.error(error);}},2200);}
+async function boot(){initChart();await loadStrategies();await loadCandles().catch(()=>{});await refresh();await refreshFeeds();setInterval(async()=>{try{const result=await refresh();if(result.quotes[symbol])updateChart(result.quotes[symbol].price);}catch(error){console.error(error);}},2200);setInterval(refreshFeeds,15000);}
 boot().catch(error=>toast(error.message));

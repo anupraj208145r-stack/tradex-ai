@@ -8,9 +8,9 @@
 <div class="app">
 <aside class="sidebar">
   <div class="brand"><span class="logo">T</span><div><b>TradeX AI</b><small>TRADING TERMINAL</small></div></div>
-  <div class="paper">● PAPER MODE ONLY</div>
+  <div class="paper">● PAPER MODE ONLY</div><div class="feedpanel"><b>MARKET DATA</b><span id="xauFeed">XAUUSD · CONNECTING</span><span id="btcFeed">BTCUSD · CONNECTING</span></div>
   <nav><a href="#overview">Dashboard</a><a href="#markets">Markets & Chart</a><a href="#automation">Auto Trader</a><a href="#strategies">Strategy Library</a><a href="#positions">Open Positions</a><a href="#history">Trade History</a></nav>
-  <div class="notice"><b>Simulation only</b><p>No broker connection, no deposits, and no real orders. Prices in this starter are synthetic demo data.</p></div>
+  <div class="notice"><b>Simulation only</b><p>No broker connection, no deposits, and no real orders. Auto trading requires both live feeds.</p></div>
 </aside>
 <main>
 <header><div><small>WORKSPACE / OVERVIEW</small><h1>Trading Dashboard</h1></div><button id="resetBtn" class="secondary">↺ Reset paper account</button></header>
@@ -24,8 +24,8 @@
  <article class="panel" id="markets">
   <div class="panelhead"><div><small>MARKET WATCH</small><h2 id="chartTitle">XAUUSD · Gold / US Dollar</h2></div>
    <div class="tabs"><button data-symbol="XAUUSD" class="active">XAUUSD</button><button data-symbol="BTCUSD">BTCUSD</button></div></div>
-  <div class="price"><b id="lastPrice">2,350.00</b><span class="demo">SYNTHETIC DEMO FEED</span></div>
-  <div id="chart"></div><small class="muted">1m candles · illustrative simulator prices, not exchange quotes</small>
+  <div class="price"><b id="lastPrice">2,350.00</b><span class="demo" id="feedStatus">LIVE FEEDS CONNECTING</span></div>
+  <div id="chart"></div><small class="muted">1m candles · live provider data when connected; no synthetic fallback</small>
  </article>
  <article class="panel">
   <small>QUICK ORDER</small><h2>Manual paper trade</h2>
