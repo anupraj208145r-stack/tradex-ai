@@ -457,43 +457,43 @@
   },
   {
     "id": "STR-058",
-    "name": "Liquidity Sweep Reversal (study template)",
+    "name": "Liquidity Sweep Reversal",
     "category": "SMC",
-    "rule_summary": "Sweep prior swing liquidity then reclaim",
-    "executable": false,
-    "status": "research_required"
+    "rule_summary": "Sweep prior 10-bar high/low then close back inside; candle-close confirmation",
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-059",
-    "name": "BOS Continuation (study template)",
+    "name": "Break of Structure (BOS)",
     "category": "SMC",
-    "rule_summary": "Break of structure then continuation",
-    "executable": false,
-    "status": "research_required"
+    "rule_summary": "Closed candle breaks the prior 10-bar swing high/low",
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-060",
-    "name": "CHoCH Reversal (study template)",
+    "name": "Change of Character (CHoCH)",
     "category": "SMC",
-    "rule_summary": "Change of character after swing break",
-    "executable": false,
-    "status": "research_required"
+    "rule_summary": "Early reversal proxy: close breaks the prior opposing swing level",
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-061",
-    "name": "Fair Value Gap (study template)",
+    "name": "Fair Value Gap Retest",
     "category": "SMC",
-    "rule_summary": "Return into three-candle imbalance",
-    "executable": false,
-    "status": "research_required"
+    "rule_summary": "Three-candle imbalance retest with directional close confirmation",
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-062",
-    "name": "Order Block Retest (study template)",
+    "name": "Order Block Retest",
     "category": "SMC",
-    "rule_summary": "Retest of last opposing candle zone",
-    "executable": false,
-    "status": "research_required"
+    "rule_summary": "Opposing candle zone retest after a confirmed structure break",
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-063",
