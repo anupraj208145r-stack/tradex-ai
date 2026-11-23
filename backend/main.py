@@ -11,7 +11,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select, desc, func
 
-from .db import (init_db, SessionLocal, Candle, UserPaperAccount, UserPosition, UserTrade, UserCustomStrategy, SupportTicket)
+from .db import (init_db, SessionLocal, Candle, PaperAccount, Position, Trade, UserPaperAccount, UserPosition, UserTrade, UserCustomStrategy, SupportTicket)
 from .auth import current_user, verify_access_token
 import httpx
 from . import providers
@@ -94,9 +94,29 @@ def feed_is_fresh(symbol:str,max_age_seconds:int=60)->bool:
 def db_account(db,user_id:str):
     account=db.get(UserPaperAccount,user_id)
     if account is None:
-        account=UserPaperAccount(user_id=user_id,starting_balance=10000,balance=10000,realized_pnl=0,
-                                 auto_enabled=False,active_strategy="STR-001",risk_pct=1)
-        db.add(account);db.commit();db.refresh(account)
+        # One-time compatibility migration: preserve the original single-user
+        # paper account when moving to authenticated per-user storage.
+        any_user_account=db.scalar(select(UserPaperAccount.user_id).limit(1))
+        legacy=db.get(PaperAccount,1)
+        if any_user_account is None and legacy is not None:
+            account=UserPaperAccount(user_id=user_id,starting_balance=legacy.starting_balance,
+                balance=legacy.balance,realized_pnl=legacy.realized_pnl,auto_enabled=False,
+                active_strategy=legacy.active_strategy,active_timeframe=legacy.active_timeframe,
+                risk_pct=legacy.risk_pct,updated_at=legacy.updated_at)
+            db.add(account)
+            for old in db.scalars(select(Position)).all():
+                db.add(UserPosition(id=old.id,user_id=user_id,symbol=old.symbol,side=old.side,
+                    quantity=old.quantity,entry=old.entry,stop_loss=old.stop_loss,
+                    take_profit=old.take_profit,opened_at=old.opened_at,source=old.source))
+            for old in db.scalars(select(Trade).order_by(Trade.closed_at)).all():
+                db.add(UserTrade(user_id=user_id,position_id=old.position_id,symbol=old.symbol,
+                    side=old.side,quantity=old.quantity,entry=old.entry,exit=old.exit,pnl=old.pnl,
+                    reason=old.reason,opened_at=old.opened_at,closed_at=old.closed_at))
+        else:
+            account=UserPaperAccount(user_id=user_id,starting_balance=10000,balance=10000,realized_pnl=0,
+                                     auto_enabled=False,active_strategy="STR-001",risk_pct=1)
+            db.add(account)
+        db.commit();db.refresh(account)
     return account
 
 def position_dict(p):
