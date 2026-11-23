@@ -23,7 +23,6 @@ candles:dict[str,list[dict]]={s:[] for s in SYMBOLS}
 current_candle:dict[str,dict]={}
 clients:set[WebSocket]=set()
 market_lock=asyncio.Lock()
-background_tasks:list[asyncio.Task]=[]
 engine_status="starting"
 
 class OrderIn(BaseModel):
