@@ -4,9 +4,10 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select, desc
 
@@ -326,5 +327,45 @@ async def ws_market(ws:WebSocket):
         while True:await ws.receive_text()
     except WebSocketDisconnect:clients.pop(ws,None)
     except Exception:clients.pop(ws,None)
+
+@app.post("/auth/session")
+def establish_browser_session(request:Request,response:Response):
+    auth=request.headers.get("authorization","")
+    if not auth.lower().startswith("bearer "):
+        raise HTTPException(status_code=401,detail="Sign in required")
+    token=auth.split(" ",1)[1].strip()
+    verify_access_token(token)
+    response.set_cookie("tradex_access_token",token,httponly=True,secure=request.url.scheme=="https",samesite="lax",path="/",max_age=3600)
+    return {"ok":True}
+
+@app.post("/auth/logout")
+def clear_browser_session(response:Response):
+    response.delete_cookie("tradex_access_token",path="/",secure=True,httponly=True,samesite="lax")
+    return {"ok":True}
+
+@app.get("/")
+def public_home():
+    return FileResponse(BASE.parent/"frontend"/"index.html",headers={"Cache-Control":"no-store"})
+
+@app.get("/login")
+def public_login():
+    return FileResponse(BASE.parent/"frontend"/"login.html",headers={"Cache-Control":"no-store"})
+
+@app.get("/contact")
+def public_contact():
+    return FileResponse(BASE.parent/"frontend"/"contact.html",headers={"Cache-Control":"no-store"})
+
+@app.get("/dashboard")
+def private_dashboard(request:Request):
+    token=request.cookies.get("tradex_access_token")
+    if not token:
+        return RedirectResponse("/login",status_code=303)
+    try:
+        verify_access_token(token)
+    except HTTPException:
+        response=RedirectResponse("/login",status_code=303)
+        response.delete_cookie("tradex_access_token",path="/",secure=True,httponly=True,samesite="lax")
+        return response
+    return FileResponse(BASE/"dashboard.html",headers={"Cache-Control":"no-store"})
 
 app.mount("/",StaticFiles(directory=BASE.parent/"frontend",html=True),name="frontend")
