@@ -86,6 +86,60 @@ class Candle(Base):
     source: Mapped[str] = mapped_column(String(32), default="unknown")
 
 Index("ix_market_candles_symbol_time", Candle.symbol, Candle.time)
+
+
+# Authenticated, per-user paper-trading tables. Legacy single-account tables above
+# are retained for rollback; new users never share their records.
+class UserPaperAccount(Base):
+    __tablename__ = "user_paper_accounts"
+    user_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    starting_balance: Mapped[float] = mapped_column(Float, default=10000.0)
+    balance: Mapped[float] = mapped_column(Float, default=10000.0)
+    realized_pnl: Mapped[float] = mapped_column(Float, default=0.0)
+    auto_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    active_strategy: Mapped[str] = mapped_column(String(64), default="STR-001")
+    risk_pct: Mapped[float] = mapped_column(Float, default=1.0)
+    updated_at: Mapped[int] = mapped_column(BigInteger, default=lambda: int(datetime.now(timezone.utc).timestamp()))
+
+class UserPosition(Base):
+    __tablename__ = "user_paper_positions"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    symbol: Mapped[str] = mapped_column(String(16), index=True)
+    side: Mapped[str] = mapped_column(String(8))
+    quantity: Mapped[float] = mapped_column(Float)
+    entry: Mapped[float] = mapped_column(Float)
+    stop_loss: Mapped[float | None] = mapped_column(Float, nullable=True)
+    take_profit: Mapped[float | None] = mapped_column(Float, nullable=True)
+    opened_at: Mapped[int] = mapped_column(BigInteger)
+    source: Mapped[str] = mapped_column(String(16), default="manual")
+
+class UserTrade(Base):
+    __tablename__ = "user_paper_trades"
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    position_id: Mapped[str] = mapped_column(String(64), index=True)
+    symbol: Mapped[str] = mapped_column(String(16))
+    side: Mapped[str] = mapped_column(String(8))
+    quantity: Mapped[float] = mapped_column(Float)
+    entry: Mapped[float] = mapped_column(Float)
+    exit: Mapped[float] = mapped_column(Float)
+    pnl: Mapped[float] = mapped_column(Float)
+    reason: Mapped[str] = mapped_column(String(32))
+    opened_at: Mapped[int] = mapped_column(BigInteger)
+    closed_at: Mapped[int] = mapped_column(BigInteger)
+
+class UserCustomStrategy(Base):
+    __tablename__ = "user_custom_strategies"
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(64), index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    symbol: Mapped[str] = mapped_column(String(16))
+    fast_ema: Mapped[int] = mapped_column(Integer)
+    slow_ema: Mapped[int] = mapped_column(Integer)
+    direction: Mapped[str] = mapped_column(String(16))
+    created_at: Mapped[int] = mapped_column(BigInteger)
+
 def init_db():
     Base.metadata.create_all(bind=engine)
     with SessionLocal() as db:
