@@ -3,6 +3,7 @@ name: Paper engine checks
 on:
   push:
     branches:
+      - main
       - feature/sharkfunded-paper-risk-engine
   pull_request:
     branches:
