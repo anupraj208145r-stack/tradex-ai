@@ -9,7 +9,7 @@ POLICY = {
     "profile": "SHARKFUNDED_UNCONFIRMED_PAPER",
     "risk_per_trade_pct": 0.25,
     "daily_loss_pct": 2.0,
-    "max_drawdown_pct": 5.0,
+    "max_drawdown_pct": 3.0,
     "max_floating_loss_pct": 1.0,
     "max_open_risk_pct": 0.50,
     "max_positions": 3,
