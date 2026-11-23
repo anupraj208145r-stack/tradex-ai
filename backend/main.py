@@ -138,7 +138,7 @@ def account_snapshot(user_id:str):
         return {"balance":round(a.balance,2),"equity":round(a.balance+floating,2),
             "realized_pnl":round(a.realized_pnl,2),"unrealized_pnl":round(floating,2),
             "positions":positions,"history":history,"auto":a.auto_enabled,
-            "active_strategy":a.active_strategy,"risk_pct":a.risk_pct}
+            "active_strategy":a.active_strategy,"active_timeframe":a.active_timeframe,"risk_pct":a.risk_pct}
 
 def get_strategy_items(user_id:str):
     with SessionLocal() as db:
