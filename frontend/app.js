@@ -36,7 +36,7 @@ async function loadStrategies(){strategies=await api("/api/strategies");const ru
 async function refreshFeeds(){
  try{
   const health=await api("/api/health");
-  const label=(s)=>health.feeds[s]==="connected"?"LIVE":health.feeds[s]==="missing_credentials"?"API KEY REQUIRED":health.feeds[s].toUpperCase();
+  const label=(s)=>health.live_ready?.[s]?"LIVE":health.feeds[s]==="missing_credentials"?"API KEY REQUIRED":health.feeds[s]==="connected"?"STALE · WAITING FOR TICK":health.feeds[s].toUpperCase();
   $("xauFeed").textContent="XAUUSD · "+label("XAUUSD");
   $("btcFeed").textContent="BTCUSD · "+label("BTCUSD");
   const live=Object.values(health.live_ready||{}).every(Boolean);
