@@ -172,24 +172,24 @@
     "name": "OBV Trend",
     "category": "Volume",
     "rule_summary": "OBV confirms price trend",
-    "executable": true,
-    "status": "implemented"
+    "executable": false,
+    "status": "template"
   },
   {
     "id": "STR-023",
     "name": "VWAP Reclaim",
     "category": "Intraday",
     "rule_summary": "Price reclaims VWAP",
-    "executable": true,
-    "status": "implemented"
+    "executable": false,
+    "status": "template"
   },
   {
     "id": "STR-024",
     "name": "VWAP Rejection",
     "category": "Intraday",
     "rule_summary": "Price rejects VWAP",
-    "executable": true,
-    "status": "implemented"
+    "executable": false,
+    "status": "template"
   },
   {
     "id": "STR-025",
@@ -356,8 +356,8 @@
     "name": "Volume Spike Breakout",
     "category": "Volume",
     "rule_summary": "Volume expansion with range break",
-    "executable": true,
-    "status": "implemented"
+    "executable": false,
+    "status": "template"
   },
   {
     "id": "STR-046",
