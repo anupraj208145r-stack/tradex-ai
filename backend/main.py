@@ -392,7 +392,18 @@ def reset(req:ResetIn,user=Depends(current_user)):
         uid=user["id"];a=db_account(db,uid);a.starting_balance=req.balance;a.balance=req.balance;a.realized_pnl=0
         a.auto_enabled=False;a.updated_at=int(time.time())
         for p in db.scalars(select(UserPosition).where(UserPosition.user_id==uid)).all():db.delete(p)
-        db.query(UserTrade).filter(UserTrade.user_id==uid).delete();db.commit()
+        db.query(UserTrade).filter(UserTrade.user_id==uid).delete()
+        state=db.get(UserRiskState,uid)
+        day_key=time.strftime("%Y-%m-%d",time.gmtime())
+        if state is None:
+            state=UserRiskState(user_id=uid,day_key=day_key,day_start_equity=req.balance,equity_peak=req.balance,
+                consecutive_losses=0,daily_locked=False,hard_locked=False,lock_reason="")
+            db.add(state)
+        else:
+            state.day_key=day_key;state.day_start_equity=req.balance;state.equity_peak=req.balance
+            state.consecutive_losses=0;state.daily_locked=False;state.hard_locked=False
+            state.lock_reason="";state.locked_at=0
+        db.commit()
     return account_snapshot(user["id"])
 
 @app.get("/api/risk")
