@@ -370,9 +370,10 @@ def auto(req:AutoIn,user=Depends(current_user)):
         item=next((s for s in get_strategy_items(user["id"]) if s["id"]==(req.strategy_id or "STR-001")),None)
         if item is None:raise HTTPException(404,"Strategy not found")
         if not item.get("executable"):raise HTTPException(400,"Strategy is not executable")
-        if item["id"]!="STR-001":raise HTTPException(400,"Only EMA 9/21 is implemented in this milestone")
-        if any(not feed_is_fresh(s) for s in SYMBOLS):
-            raise HTTPException(503,"Both live feeds must be connected before enabling auto trading")
+        if item["id"] not in SUPPORTED_STRATEGIES and not item["id"].startswith("CUSTOM-"):
+            raise HTTPException(400,"Strategy has no implemented execution rules")
+        if not any(feed_is_fresh(s) for s in SYMBOLS):
+            raise HTTPException(503,"No live market feed is ready. Connect at least one supported feed before enabling auto trading.")
     with SessionLocal() as db:
         a=db_account(db,user["id"]);a.auto_enabled=req.enabled;a.risk_pct=req.risk_pct
         if req.enabled:a.active_strategy=req.strategy_id or "STR-001"
@@ -387,7 +388,7 @@ def custom(req:CustomStrategyIn,user=Depends(current_user)):
     with SessionLocal() as db:db.add(item);db.commit()
     return {"id":item.id,"name":item.name,"category":"Custom",
         "rule_summary":f"EMA {item.fast_ema}/{item.slow_ema}; {item.direction}; {item.symbol}",
-        "executable":False,"status":"custom_draft"}
+        "executable":True,"status":"implemented"}
 
 @app.websocket("/ws/market")
 async def ws_market(ws:WebSocket):
