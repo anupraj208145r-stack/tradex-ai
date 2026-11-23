@@ -3,7 +3,7 @@
   <div class="brand"><span class="logo">T</span><div><b>TradeX AI</b><small>TRADING TERMINAL</small></div></div>
   <div class="paper">● PAPER MODE ONLY</div><div class="feedpanel"><b>MARKET DATA</b><span id="xauFeed">XAUUSD · CONNECTING</span><span id="btcFeed">BTCUSD · CONNECTING</span></div>
   <nav><a href="#overview">Dashboard</a><a href="#markets">Markets & Chart</a><a href="#automation">Auto Trader</a><a href="#strategies">Strategy Library</a><a href="#positions">Open Positions</a><a href="#history">Trade History</a></nav>
-  <div class="notice"><b>Simulation only</b><p>No broker connection, no deposits, and no real orders. Auto trading requires both live feeds.</p></div>
+  <div class="notice"><b>Simulation only</b><p>No broker connection, no deposits, and no real orders. Auto trading requires a fresh live feed for the selected instrument.</p></div>
 </aside>
 <main>
 <header><div><small>WORKSPACE / OVERVIEW</small><h1>Trading Dashboard</h1></div><div class="headeractions"><span id="userEmail" class="userlabel"></span><button id="logoutBtn" class="secondary">Sign out</button><button id="resetBtn" class="secondary">↺ Reset paper account</button></div></header>
@@ -24,7 +24,7 @@
   <small>QUICK ORDER</small><h2>Manual paper trade</h2>
   <label>Instrument<select id="orderSymbol"><option>XAUUSD</option><option>BTCUSD</option></select></label>
   <label>Quantity<input id="quantity" type="number" value="0.01" min="0.001" step="0.001"></label>
-  <div class="twocol"><label>Stop loss<input id="sl" type="number" placeholder="Optional"></label><label>Take profit<input id="tp" type="number" placeholder="Optional"></label></div>
+  <div class="twocol"><label>Stop loss<input id="sl" type="number" placeholder="Auto ATR"></label><label>Take profit<input id="tp" type="number" placeholder="Auto ATR"></label></div><p class="hint">Leave both blank to calculate volatility-adjusted SL/TP automatically.</p>
   <div class="buttons"><button id="buyBtn" class="buy">BUY / LONG</button><button id="sellBtn" class="sell">SELL / SHORT</button></div>
   <p class="hint">Filled at current simulator quote. No live market or broker order is sent.</p>
  </article>
@@ -35,7 +35,7 @@
   <label>Executable strategy<select id="autoStrategy"></select></label>
   <label>Risk per trade <b id="riskLabel">1.00%</b><input id="risk" type="range" min=".25" max="5" step=".25" value="1"></label>
   <div class="buttons"><button id="autoBtn" class="primary">▶ Start auto trading</button><button id="stopBtn" class="secondary" disabled>■ Stop</button></div>
-  <p class="hint">Only EMA 9/21 crossover is executable in this starter. Other entries are research/templates, not completed bots.</p>
+  <p class="hint">Signals are evaluated on closed 1-minute candles. Adaptive ATR stops, 2R targets and risk-based paper sizing are applied automatically. Strategy performance is not guaranteed.</p>
   <p id="botStatus" class="status">● AUTO TRADING STOPPED</p>
  </article>
  <article class="panel" id="strategies">
@@ -55,5 +55,5 @@
  <div class="panelhead"><div><small>ACTIVITY</small><h2>Trade History</h2></div><span id="historyCount" class="count">0</span></div>
  <div class="tablewrap"><table><thead><tr><th>SYMBOL</th><th>SIDE</th><th>ENTRY</th><th>EXIT</th><th>RESULT</th><th>REASON</th></tr></thead><tbody id="historyBody"><tr><td colspan="6" class="empty">No completed trades</td></tr></tbody></table></div>
 </section>
-<footer>TradeX AI v0.1 · Paper trading only · Synthetic demo prices · Not investment advice</footer>
+<footer>TradeX AI · Paper trading only · Live provider data when connected · Not investment advice</footer>
 </main></div><div id="toast" class="toast"></div><script src="/auth.js"></script><script src="/app.js"></script></body></html>
