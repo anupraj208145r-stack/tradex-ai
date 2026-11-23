@@ -413,10 +413,53 @@ def risk_status(user=Depends(current_user)):
 @app.get("/api/quotes")
 def quotes():return quotes_meta
 
+def aggregate_candles(rows:list[dict], timeframe:str)->list[dict]:
+    seconds={"1m":60,"5m":300,"15m":900,"30m":1800,"1h":3600,"4h":14400,"1d":86400}
+    if timeframe not in seconds:raise HTTPException(422,"Unsupported timeframe")
+    step=seconds[timeframe];out=[]
+    for c in sorted(rows,key=lambda x:int(x["time"])):
+        bucket=int(c["time"])//step*step
+        if not out or out[-1]["time"]!=bucket:
+            out.append({"time":bucket,"open":float(c["open"]),"high":float(c["high"]),
+                "low":float(c["low"]),"close":float(c["close"]),"volume":float(c.get("volume",0))})
+        else:
+            z=out[-1];z["high"]=max(z["high"],float(c["high"]));z["low"]=min(z["low"],float(c["low"]))
+            z["close"]=float(c["close"]);z["volume"]+=float(c.get("volume",0))
+    return out[-1000:]
+
+def market_structure(rows:list[dict])->dict:
+    data=rows[-250:];fvg=[];obs=[]
+    for i in range(2,len(data)):
+        a,b,c=data[i-2],data[i-1],data[i]
+        if float(c["low"])>float(a["high"]):
+            fvg.append({"type":"bullish","low":float(a["high"]),"high":float(c["low"]),"time":int(c["time"]),
+                "filled":min(float(x["low"]) for x in data[i+1:])<=float(a["high"]) if i+1<len(data) else False})
+        if float(c["high"])<float(a["low"]):
+            fvg.append({"type":"bearish","low":float(c["high"]),"high":float(a["low"]),"time":int(c["time"]),
+                "filled":max(float(x["high"]) for x in data[i+1:])>=float(a["low"]) if i+1<len(data) else False})
+    # Confirmed pivot break: last opposite candle before close breaks prior 10-bar swing.
+    for i in range(12,len(data)):
+        window=data[i-10:i];bar=data[i]
+        swing_hi=max(float(x["high"]) for x in window);swing_lo=min(float(x["low"]) for x in window)
+        if float(bar["close"])>swing_hi:
+            prior=next((x for x in reversed(data[max(0,i-5):i]) if float(x["close"])<float(x["open"])),None)
+            if prior:obs.append({"type":"bullish","low":float(prior["low"]),"high":float(prior["open"]),"time":int(prior["time"])})
+        elif float(bar["close"])<swing_lo:
+            prior=next((x for x in reversed(data[max(0,i-5):i]) if float(x["close"])>float(x["open"])),None)
+            if prior:obs.append({"type":"bearish","low":float(prior["open"]),"high":float(prior["high"]),"time":int(prior["time"])})
+    return {"fvg":[z for z in fvg[-12:] if not z["filled"]],"order_blocks":obs[-12:]}
+
 @app.get("/api/candles/{symbol}")
-def get_candles(symbol:str):
+def get_candles(symbol:str,timeframe:str="1m"):
     if symbol not in SYMBOLS:raise HTTPException(404,"Unknown symbol")
-    return candles[symbol]+([current_candle[symbol]] if symbol in current_candle else [])
+    rows=candles[symbol]+([current_candle[symbol]] if symbol in current_candle else [])
+    return aggregate_candles(rows,timeframe)
+
+@app.get("/api/analysis/{symbol}")
+def get_analysis(symbol:str,timeframe:str="1m"):
+    if symbol not in SYMBOLS:raise HTTPException(404,"Unknown symbol")
+    rows=candles[symbol]+([current_candle[symbol]] if symbol in current_candle else [])
+    return market_structure(aggregate_candles(rows,timeframe))
 
 @app.get("/api/strategies")
 def strategies(user=Depends(current_user)):return get_strategy_items(user["id"])
