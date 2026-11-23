@@ -52,12 +52,13 @@ function paintAccount(account,quotes){
  $("positionCount").textContent=account.positions.length;$("historyCount").textContent=account.history.length;
 }
 async function refresh(){const [account,quotes]=await Promise.all([api("/api/account"),api("/api/quotes")]);paintAccount(account,quotes);return {account,quotes};}
+function escapeHtml(value){return String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
 function renderStrategies(){
  const q=$("strategySearch").value.toLowerCase(),list=strategies.filter(s=>(s.name+" "+s.category).toLowerCase().includes(q));
  $("strategyCount").textContent=strategies.length;
- $("strategyList").innerHTML=list.map(s=>'<div class="strategy"><div><b>'+s.name+'</b><small>'+s.category+' · '+s.rule_summary+'</small></div><em>'+(s.executable?"READY · DEMO":s.status==="research_required"?"RESEARCH ONLY":"TEMPLATE ONLY")+'</em></div>').join("");
+ $("strategyList").innerHTML=list.map(s=>'<div class="strategy"><div><b>'+escapeHtml(s.name)+'</b><small>'+escapeHtml(s.category)+' · '+escapeHtml(s.rule_summary)+'</small></div><em>'+(s.executable?"IMPLEMENTED · PAPER":s.status==="research_required"?"RESEARCH ONLY":"TEMPLATE ONLY")+'</em></div>').join("");
 }
-async function loadStrategies(){strategies=await api("/api/strategies");const runnable=strategies.filter(s=>s.executable);$("autoStrategy").innerHTML=runnable.map(s=>'<option value="'+s.id+'">'+s.name+'</option>').join("");renderStrategies();}
+async function loadStrategies(selected){strategies=await api("/api/strategies");const runnable=strategies.filter(s=>s.executable);$("autoStrategy").innerHTML=runnable.map(s=>'<option value="'+escapeHtml(s.id)+'">'+escapeHtml(s.name)+'</option>').join("");if(selected&&runnable.some(s=>s.id===selected))$("autoStrategy").value=selected;renderStrategies();}
 async function refreshFeeds(){
  try{const health=await api("/api/health");const label=s=>health.live_ready?.[s]?"LIVE":health.feeds[s]==="missing_credentials"?"API KEY REQUIRED":health.feeds[s]==="connected"?"STALE · WAITING FOR TICK":health.feeds[s].toUpperCase();
  $("xauFeed").textContent="XAUUSD · "+label("XAUUSD");$("btcFeed").textContent="BTCUSD · "+label("BTCUSD");
@@ -92,8 +93,8 @@ $("autoBtn").onclick=async()=>{try{await api("/api/auto",{method:"POST",body:JSO
 $("stopBtn").onclick=async()=>{try{await api("/api/auto",{method:"POST",body:JSON.stringify({enabled:false,risk_pct:Number($("risk").value)})});toast("Auto trading stopped");await refresh();}catch(e){toast(e.message);}};
 $("risk").oninput=()=>{$("riskLabel").textContent=Number($("risk").value).toFixed(2)+"%";};
 $("strategySearch").oninput=renderStrategies;
-$("saveCustom").onclick=async()=>{try{const body={name:$("customName").value,symbol:"BOTH",fast_ema:Number($("fastEma").value),slow_ema:Number($("slowEma").value),direction:"both"};const item=await api("/api/strategies/custom",{method:"POST",body:JSON.stringify(body)});strategies.push(item);renderStrategies();toast("Custom strategy saved as a draft");}catch(e){toast(e.message);}};
+$("saveCustom").onclick=async()=>{try{const body={name:$("customName").value,symbol:"BOTH",fast_ema:Number($("fastEma").value),slow_ema:Number($("slowEma").value),direction:"both"};const item=await api("/api/strategies/custom",{method:"POST",body:JSON.stringify(body)});strategies.push(item);await loadStrategies(item.id);toast("Custom EMA strategy saved and can be selected for paper automation");}catch(e){toast(e.message);}};
 $("positionsBody").onclick=async event=>{const id=event.target.dataset.close;if(id){try{await api("/api/positions/"+id+"/close",{method:"POST"});toast("Position closed");await refresh();}catch(e){toast(e.message);}}};
 document.querySelectorAll("[data-symbol]").forEach(button=>button.onclick=async()=>{symbol=button.dataset.symbol;document.querySelectorAll("[data-symbol]").forEach(b=>b.classList.toggle("active",b===button));$("chartTitle").textContent=symbol+(symbol==="XAUUSD"?" · Gold / US Dollar":" · Bitcoin / US Dollar");await loadCandles();});
-async function boot(){await window.authReady;if(!await window.getTradeXAccessToken?.())return;initChart();await loadStrategies();await loadCandles().catch(()=>{});await refresh();await refreshFeeds();connectMarketSocket();setInterval(refreshFeeds,30000);}
+async function boot(){await window.authReady;if(!await window.getTradeXAccessToken?.())return;initChart();const initial=await refresh();await loadStrategies(initial.account.active_strategy);await loadCandles().catch(()=>{});await refreshFeeds();connectMarketSocket();setInterval(refreshFeeds,30000);}
 boot().catch(error=>toast(error.message));
