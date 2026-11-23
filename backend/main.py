@@ -440,8 +440,11 @@ def update_support_ticket(ticket_id:str,req:SupportUpdateIn,user=Depends(require
         ticket=db.get(SupportTicket,ticket_id)
         if ticket is None:raise HTTPException(status_code=404,detail="Support request not found")
         ticket.status=req.status;ticket.admin_note=req.admin_note.strip();ticket.updated_at=int(time.time())
+        customer_email=ticket.email;customer_name=ticket.name;ticket_subject=ticket.subject;current_status=ticket.status
         db.commit()
-        return {"ok":True,"id":ticket.id,"status":ticket.status}
+    notified=send_support_email(customer_email,f"TradeX AI support update: {ticket_id}",
+        f"Hi {customer_name},\\n\\nYour support request #{ticket_id} ({ticket_subject}) is now marked: {current_status.replace('_',' ').title()}.\\n\\nTradeX AI Support")
+    return {"ok":True,"id":ticket_id,"status":current_status,"customer_notified":notified}
 
 
 @app.get("/admin/support")
