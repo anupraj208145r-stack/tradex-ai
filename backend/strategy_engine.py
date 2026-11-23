@@ -107,7 +107,7 @@ def signal_for(strategy_id:str,candles:list[dict])->str|None:
     if strategy_id=="STR-003":
         a,b,d=_ema(x,9),_ema(x,21),_ema(x,50)
         ap,bp,dp=_ema(prev,9),_ema(prev,21),_ema(prev,50)
-        return "BUY" if ap<=bp or bp<=dp and a>b>d else "SELL" if ap>=bp or bp>=dp and a<b<d else None
+        return "BUY" if (ap<=bp or bp<=dp) and a>b>d else "SELL" if (ap>=bp or bp>=dp) and a<b<d else None
     if strategy_id in ("STR-004","STR-005"):
         m=_macd(x); mp=_macd(prev)
         if not m or not mp:return None
@@ -242,3 +242,6 @@ SUPPORTED_STRATEGIES = {
  "STR-040","STR-044","STR-045","STR-046","STR-047","STR-048","STR-049",
  "STR-050","STR-052","STR-053","STR-054","STR-055","STR-056","STR-057"
 }
+
+def atr_value(candles:list[dict],period:int=14)->float|None:
+    return _atr(candles,period)
