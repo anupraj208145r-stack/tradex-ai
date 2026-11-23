@@ -1,6 +1,6 @@
 const API = location.origin;
 let symbol = "XAUUSD", timeframe = "1m", chart, candleSeries, candles = [], strategies = [], riskLines = [], overlayLines = [];
-let ws=null, reconnectDelay=1000, lastAccountPaint=0, botRunning=false, activeStrategyId="STR-001";
+let ws=null, reconnectDelay=1000, lastAccountPaint=0, botRunning=false, activeStrategyId="STR-001", chartZones={fvg:[],order_blocks:[]}, overlayCanvas=null, overlayCtx=null;
 const $ = id => document.getElementById(id);
 const money = n => (n < 0 ? "-$" : "$") + Math.abs(Number(n || 0)).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 function toast(message){const el=$("toast");el.textContent=message;el.classList.add("show");setTimeout(()=>el.classList.remove("show"),2300);}
@@ -10,8 +10,11 @@ function initChart(){
  const getSize=()=>({width:Math.max(280,Math.floor(el.getBoundingClientRect().width)),height:Math.max(240,Math.min(430,Math.floor(el.getBoundingClientRect().height||295)))});
  chart=LightweightCharts.createChart(el,{...getSize(),autoSize:true,layout:{background:{color:"#111a2d"},textColor:"#91a0ba"},grid:{vertLines:{color:"#1c2940"},horzLines:{color:"#1c2940"}},rightPriceScale:{borderColor:"#293852",minimumWidth:58},timeScale:{borderColor:"#293852",timeVisible:true,secondsVisible:false,rightOffset:5,barSpacing:8},crosshair:{mode:1},handleScroll:{mouseWheel:true,pressedMouseMove:true},handleScale:{mouseWheel:true,pinch:true},localization:{locale:"en-US"}});
  candleSeries=chart.addCandlestickSeries({upColor:"#28d6a1",downColor:"#ff6b7a",borderUpColor:"#28d6a1",borderDownColor:"#ff6b7a",wickUpColor:"#28d6a1",wickDownColor:"#ff6b7a",priceLineVisible:true});
+ overlayCanvas=document.createElement("canvas");overlayCanvas.className="chart-overlay";el.appendChild(overlayCanvas);overlayCtx=overlayCanvas.getContext("2d");
+ const drawZones=()=>{if(!overlayCtx)return;const w=el.clientWidth,h=el.clientHeight,dpr=window.devicePixelRatio||1;overlayCanvas.width=w*dpr;overlayCanvas.height=h*dpr;overlayCanvas.style.width=w+"px";overlayCanvas.style.height=h+"px";overlayCtx.setTransform(dpr,0,0,dpr,0,0);overlayCtx.clearRect(0,0,w,h);const zones=[];if($("showFvg").checked)zones.push(...chartZones.fvg);if($("showOb").checked)zones.push(...chartZones.order_blocks);for(const z of zones){const topY=candleSeries.priceToCoordinate(Number(z.high)),botY=candleSeries.priceToCoordinate(Number(z.low));if(topY===null||botY===null)continue;const x0=chart.timeScale().timeToCoordinate(Number(z.time));const x=x0===null?0:Math.max(0,x0),top=Math.min(topY,botY),height=Math.max(2,Math.abs(botY-topY));if(x>=w)continue;const bull=z.type==="bullish",fvg=z.kind==="fvg";overlayCtx.fillStyle=fvg?(bull?"rgba(40,214,161,.14)":"rgba(255,156,112,.14)"):(bull?"rgba(113,141,255,.18)":"rgba(193,140,255,.18)");overlayCtx.strokeStyle=fvg?(bull?"#28d6a1":"#ff9c70"):(bull?"#718dff":"#c18cff");overlayCtx.fillRect(x,top,w-x,height);overlayCtx.strokeRect(x,top,w-x,height);overlayCtx.fillStyle="#e9effb";overlayCtx.font="10px sans-serif";overlayCtx.fillText((fvg?"FVG ":"OB ")+z.type.toUpperCase(),x+4,Math.max(12,top+12));}};
+ chart.subscribeVisibleLogicalRangeChange(drawZones);chart.timeScale().subscribeVisibleTimeRangeChange(drawZones);
  let resizeFrame=0;
- const observer=new ResizeObserver(()=>{cancelAnimationFrame(resizeFrame);resizeFrame=requestAnimationFrame(()=>{const size=getSize();chart.applyOptions(size);});});
+ const observer=new ResizeObserver(()=>{cancelAnimationFrame(resizeFrame);resizeFrame=requestAnimationFrame(()=>{const size=getSize();chart.applyOptions(size);drawZones();});});
  observer.observe(el);
  window.addEventListener("beforeunload",()=>observer.disconnect(),{once:true});
 }
@@ -30,14 +33,8 @@ async function loadCandles(){
  await loadAnalysis();
  $("chartCaption").textContent=timeframe+" candles · both market scanners operate independently · paper only";
 }
-async function loadAnalysis(){
- for(const line of overlayLines)candleSeries.removePriceLine(line);overlayLines=[];
- try{const data=await api("/api/analysis/"+symbol+"?timeframe="+timeframe);
-  const addZone=(zone,label,color)=>{overlayLines.push(candleSeries.createPriceLine({price:Number(zone.low),color,lineWidth:1,lineStyle:LightweightCharts.LineStyle.Dotted,axisLabelVisible:true,title:label+" L"}));overlayLines.push(candleSeries.createPriceLine({price:Number(zone.high),color,lineWidth:1,lineStyle:LightweightCharts.LineStyle.Dotted,axisLabelVisible:true,title:label+" H"}));};
-  if($("showFvg").checked)(data.fvg||[]).forEach(z=>addZone(z,"FVG "+z.type,z.type==="bullish"?"#28d6a1":"#ff9c70"));
-  if($("showOb").checked)(data.order_blocks||[]).forEach(z=>addZone(z,"OB "+z.type,z.type==="bullish"?"#718dff":"#c18cff"));
- }catch(e){console.warn("Chart analysis unavailable",e);}
-}
+async function loadAnalysis(){try{const data=await api("/api/analysis/"+symbol+"?timeframe="+timeframe);chartZones={fvg:(data.fvg||[]).map(z=>({...z,kind:"fvg"})),order_blocks:(data.order_blocks||[]).map(z=>({...z,kind:"ob"}))};}catch(e){console.warn(e);chartZones={fvg:[],order_blocks:[]};}if(overlayCanvas){const w=$("chart").clientWidth,h=$("chart").clientHeight,dpr=window.devicePixelRatio||1;overlayCanvas.width=w*dpr;overlayCanvas.height=h*dpr;overlayCtx.clearRect(0,0,w,h);chart.timeScale().scrollToRealTime();}}
+
 function updateChart(quote){
  if(!quote||!Number.isFinite(Number(quote.price))||!Number.isFinite(Number(quote.time)))return;
  const price=Number(quote.price), step=({"1m":60,"5m":300,"15m":900,"30m":1800,"1h":3600,"4h":14400,"1d":86400})[timeframe], minute=Math.floor(Number(quote.time)/step)*step;
@@ -130,6 +127,9 @@ document.querySelectorAll("[data-symbol]").forEach(button=>button.onclick=()=>sw
 $("prevSymbol").onclick=()=>switchSymbol(symbol==="XAUUSD"?"BTCUSD":"XAUUSD").catch(e=>toast(e.message));
 $("nextSymbol").onclick=()=>switchSymbol(symbol==="XAUUSD"?"BTCUSD":"XAUUSD").catch(e=>toast(e.message));
 document.querySelectorAll("[data-timeframe]").forEach(button=>button.onclick=async()=>{timeframe=button.dataset.timeframe;document.querySelectorAll("[data-timeframe]").forEach(b=>b.classList.toggle("active",b===button));candles=[];candleSeries.setData([]);try{await loadCandles();if(botRunning){await api("/api/auto",{method:"POST",body:JSON.stringify({enabled:true,strategy_id:activeStrategyId,risk_pct:Number($("risk").value),timeframe})});toast("Bot timeframe changed to "+timeframe);}}catch(e){toast("Timeframe load failed: "+e.message);}});
-$("showFvg").onchange=loadAnalysis;$("showOb").onchange=loadAnalysis;
+$("showFvg").onchange=()=>chart.timeScale().scrollToRealTime();$("showOb").onchange=()=>chart.timeScale().scrollToRealTime();
+$("zoomIn").onclick=()=>chart.timeScale().applyOptions({barSpacing:Math.min(30,(chart.options().timeScale.barSpacing||8)*1.25)});
+$("zoomOut").onclick=()=>chart.timeScale().applyOptions({barSpacing:Math.max(2,(chart.options().timeScale.barSpacing||8)/1.25)});
+$("restoreChart").onclick=()=>{chart.timeScale().fitContent();chart.priceScale("right").applyOptions({autoScale:true});chart.timeScale().applyOptions({rightOffset:5});};
 async function boot(){await window.authReady;if(!await window.getTradeXAccessToken?.())return;initChart();const initial=await refresh();await loadStrategies(initial.account.active_strategy);await loadCandles().catch(()=>{});await refreshFeeds();connectMarketSocket();setInterval(refreshFeeds,30000);}
 boot().catch(error=>toast(error.message));
