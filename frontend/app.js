@@ -50,19 +50,7 @@ function renderPositions(positions,quotes){
  }
 }
 function renderHistory(history){$("historyBody").innerHTML=history.length?history.slice().reverse().map(p=>'<tr><td><b>'+p.symbol+'</b></td><td>'+p.side+'</td><td>'+p.entry.toFixed(2)+'</td><td>'+p.exit.toFixed(2)+'</td><td class="'+(p.pnl>=0?"good":"bad")+'">'+money(p.pnl)+'</td><td>'+p.reason+'</td></tr>').join(""):'<tr><td colspan="6" class="empty">No completed trades</td></tr>';}
-function paintRisk(risk){
- if(!risk)return;
- const locked=risk.status==="LOCKED";
- $("riskBadge").textContent=locked?"LOCKED":"ACTIVE";
- $("riskBadge").style.color=locked?"#ff6b7a":"#28d6a1";
- $("riskDaily").textContent=money(risk.daily_loss)+" / "+money(risk.daily_loss_limit);
- $("riskFloating").textContent=money(risk.floating_loss)+" / "+money(risk.floating_loss_limit);
- $("riskOpen").textContent=money(risk.open_risk)+" / "+money(risk.max_open_risk);
- $("riskFloor").textContent=money(risk.max_loss_floor);
- $("riskMessage").textContent=locked?"Trading locked: "+(risk.lock_reason||risk.reason)+". Manual reset/review is required; hard locks cannot be cleared by restarting.":"Active · "+risk.risk_per_trade_pct+"% risk/trade · "+risk.daily_loss_pct+"% internal daily stop · "+risk.max_drawdown_pct+"% static max-loss floor · UTC reset. Internal guardrails, not firm-certified.";
-}
 function paintAccount(account,quotes){
- paintRisk(account.risk);
  $("balance").textContent=money(account.balance);$("equity").textContent=money(account.equity);
  $("realized").textContent=money(account.realized_pnl);$("unrealized").textContent=money(account.unrealized_pnl);
  $("realized").className=account.realized_pnl>=0?"good":"bad";$("unrealized").className=account.unrealized_pnl>=0?"good":"bad";
