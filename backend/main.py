@@ -401,7 +401,7 @@ def create_support_ticket(req:SupportRequestIn,request:Request):
     if req.website.strip():
         return {"ok":True,"message":"Your request has been received."}
     email=req.email.strip().lower()
-    if not re.fullmatch(r"[^@\\s]+@[^@\\s]+\\.[^@\\s]+",email):
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+",email):
         raise HTTPException(status_code=422,detail="Enter a valid email address")
     now=int(time.time())
     with SessionLocal() as db:
@@ -414,12 +414,12 @@ def create_support_ticket(req:SupportRequestIn,request:Request):
             status="new",admin_note="",email_sent=False,created_at=now,updated_at=now)
         db.add(ticket);db.commit()
     support_to=os.getenv("SUPPORT_TO_EMAIL","").strip()
-    admin_body=(f"New TradeX AI support request\\n\\nTicket: {ticket.id}\\nName: {ticket.name}\\n"
-        f"Email: {ticket.email}\\nCategory: {ticket.category}\\nSubject: {ticket.subject}\\n\\n{ticket.message}")
+    admin_body=(f"New TradeX AI support request\n\nTicket: {ticket.id}\nName: {ticket.name}\n"
+        f"Email: {ticket.email}\nCategory: {ticket.category}\nSubject: {ticket.subject}\n\n{ticket.message}")
     delivered=send_support_email(support_to,f"[TradeX AI #{ticket.id}] {ticket.subject}",admin_body) if support_to else False
     send_support_email(ticket.email,f"We received your TradeX AI request #{ticket.id}",
-        f"Hi {ticket.name},\\n\\nWe have received your support request. Your reference is {ticket.id}. "
-        "Our team will review it.\\n\\nTradeX AI Support")
+        f"Hi {ticket.name},\n\nWe have received your support request. Your reference is {ticket.id}. "
+        "Our team will review it.\n\nTradeX AI Support")
     with SessionLocal() as db:
         saved=db.get(SupportTicket,ticket.id)
         if saved:saved.email_sent=delivered;db.commit()
