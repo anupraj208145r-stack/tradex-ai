@@ -1,5 +1,5 @@
 from __future__ import annotations
-import asyncio, json, os, time, uuid
+import asyncio, json, os, time, uuid, re
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
@@ -9,10 +9,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, func
 
-from .db import (init_db, SessionLocal, Candle, UserPaperAccount, UserPosition, UserTrade, UserCustomStrategy)
+from .db import (init_db, SessionLocal, Candle, UserPaperAccount, UserPosition, UserTrade, UserCustomStrategy, SupportTicket)
 from .auth import current_user, verify_access_token
+import httpx
 from . import providers
 
 BASE=Path(__file__).parent
@@ -25,6 +26,44 @@ current_candle:dict[str,dict]={}
 clients:dict[WebSocket,str]={}
 market_lock=asyncio.Lock()
 engine_status="starting"
+
+
+class SupportRequestIn(BaseModel):
+    name:str=Field(min_length=2,max_length=80)
+    email:str=Field(min_length=5,max_length=254)
+    category:Literal["Account access","Market data","Paper trading","Strategy library","Bug report","Feedback","Other"]
+    subject:str=Field(min_length=4,max_length=120)
+    message:str=Field(min_length=15,max_length=5000)
+    website:str=Field(default="",max_length=200)
+
+class SupportUpdateIn(BaseModel):
+    status:Literal["new","in_progress","resolved"]
+    admin_note:str=Field(default="",max_length=2000)
+
+def admin_emails()->set[str]:
+    return {item.strip().lower() for item in os.getenv("ADMIN_EMAILS","").split(",") if item.strip()}
+
+def require_admin(user=Depends(current_user)):
+    allowed=admin_emails()
+    if not allowed:
+        raise HTTPException(status_code=503,detail="Admin access is not configured")
+    if not user.get("email") or user["email"].lower() not in allowed:
+        raise HTTPException(status_code=403,detail="Admin access required")
+    return user
+
+def send_support_email(to_email:str,subject:str,body:str)->bool:
+    api_key=os.getenv("RESEND_API_KEY","").strip()
+    sender=os.getenv("RESEND_FROM_EMAIL","").strip()
+    if not api_key or not sender:
+        return False
+    try:
+        response=httpx.post("https://api.resend.com/emails",
+            headers={"Authorization":"Bearer "+api_key,"Content-Type":"application/json"},
+            json={"from":sender,"to":[to_email],"subject":subject,"text":body},
+            timeout=10.0)
+        return response.status_code in (200,201,202)
+    except httpx.HTTPError:
+        return False
 
 class OrderIn(BaseModel):
     symbol:Literal["XAUUSD","BTCUSD"]
@@ -354,6 +393,66 @@ def public_login():
 @app.get("/contact")
 def public_contact():
     return FileResponse(BASE.parent/"frontend"/"contact.html",headers={"Cache-Control":"no-store"})
+
+
+@app.post("/api/support")
+def create_support_ticket(req:SupportRequestIn,request:Request):
+    # Honeypot field catches basic automated form submissions.
+    if req.website.strip():
+        return {"ok":True,"message":"Your request has been received."}
+    email=req.email.strip().lower()
+    if not re.fullmatch(r"[^@\\s]+@[^@\\s]+\\.[^@\\s]+",email):
+        raise HTTPException(status_code=422,detail="Enter a valid email address")
+    now=int(time.time())
+    with SessionLocal() as db:
+        recent=db.scalar(select(func.count(SupportTicket.id)).where(
+            SupportTicket.email==email,SupportTicket.created_at>=now-3600)) or 0
+        if recent>=5:
+            raise HTTPException(status_code=429,detail="Too many requests. Please try again later.")
+        ticket=SupportTicket(id=uuid.uuid4().hex[:12].upper(),name=req.name.strip(),
+            email=email,category=req.category,subject=req.subject.strip(),message=req.message.strip(),
+            status="new",admin_note="",email_sent=False,created_at=now,updated_at=now)
+        db.add(ticket);db.commit()
+    support_to=os.getenv("SUPPORT_TO_EMAIL","").strip()
+    admin_body=(f"New TradeX AI support request\\n\\nTicket: {ticket.id}\\nName: {ticket.name}\\n"
+        f"Email: {ticket.email}\\nCategory: {ticket.category}\\nSubject: {ticket.subject}\\n\\n{ticket.message}")
+    delivered=send_support_email(support_to,f"[TradeX AI #{ticket.id}] {ticket.subject}",admin_body) if support_to else False
+    send_support_email(ticket.email,f"We received your TradeX AI request #{ticket.id}",
+        f"Hi {ticket.name},\\n\\nWe have received your support request. Your reference is {ticket.id}. "
+        "Our team will review it.\\n\\nTradeX AI Support")
+    with SessionLocal() as db:
+        saved=db.get(SupportTicket,ticket.id)
+        if saved:saved.email_sent=delivered;db.commit()
+    return {"ok":True,"ticket_id":ticket.id,"saved":True,"email_sent":delivered,
+        "message":"Your request has been saved. "+("The support team has been notified by email." if delivered else "Email notification is not configured yet; your request is safely stored for the support team.")}
+
+@app.get("/api/admin/support")
+def list_support_tickets(user=Depends(require_admin)):
+    with SessionLocal() as db:
+        rows=db.scalars(select(SupportTicket).order_by(desc(SupportTicket.created_at)).limit(200)).all()
+        return [{"id":t.id,"name":t.name,"email":t.email,"category":t.category,"subject":t.subject,
+            "message":t.message,"status":t.status,"admin_note":t.admin_note,"email_sent":t.email_sent,
+            "created_at":t.created_at,"updated_at":t.updated_at} for t in rows]
+
+@app.patch("/api/admin/support/{ticket_id}")
+def update_support_ticket(ticket_id:str,req:SupportUpdateIn,user=Depends(require_admin)):
+    with SessionLocal() as db:
+        ticket=db.get(SupportTicket,ticket_id)
+        if ticket is None:raise HTTPException(status_code=404,detail="Support request not found")
+        ticket.status=req.status;ticket.admin_note=req.admin_note.strip();ticket.updated_at=int(time.time())
+        db.commit()
+        return {"ok":True,"id":ticket.id,"status":ticket.status}
+
+
+@app.get("/admin/support")
+def admin_support_page(request:Request):
+    token=request.cookies.get("tradex_access_token")
+    if not token:return RedirectResponse("/login",status_code=303)
+    try:user=verify_access_token(token)
+    except HTTPException:return RedirectResponse("/login",status_code=303)
+    if not user.get("email") or user["email"].lower() not in admin_emails():
+        raise HTTPException(status_code=403,detail="Admin access required")
+    return FileResponse(BASE.parent/"frontend"/"admin-support.html",headers={"Cache-Control":"no-store"})
 
 @app.get("/dashboard")
 def private_dashboard(request:Request):
