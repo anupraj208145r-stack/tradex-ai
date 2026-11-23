@@ -79,6 +79,7 @@ class AutoIn(BaseModel):
     enabled:bool
     strategy_id:str|None=None
     risk_pct:float=Field(default=0.25,gt=0,le=0.25)
+    timeframe:Literal["1m","5m","15m","30m","1h","4h","1d"]="1m"
 class CustomStrategyIn(BaseModel):
     name:str=Field(min_length=3,max_length=60)
     symbol:Literal["XAUUSD","BTCUSD","BOTH"]="BOTH"
@@ -155,7 +156,7 @@ def account_snapshot(user_id:str):
         return {"balance":round(a.balance,2),"equity":round(equity,2),
             "realized_pnl":round(a.realized_pnl,2),"unrealized_pnl":round(floating,2),
             "positions":positions,"history":history,"auto":a.auto_enabled,
-            "active_strategy":a.active_strategy,"risk_pct":a.risk_pct,"risk":risk}
+            "active_strategy":a.active_strategy,"active_timeframe":a.active_timeframe,"risk_pct":a.risk_pct,"risk":risk}
 
 def get_strategy_items(user_id:str):
     with SessionLocal() as db:
@@ -224,11 +225,11 @@ def adaptive_levels(symbol:str,side:str,entry:float,series:list[dict]):
 
 def evaluate_auto(symbol:str):
     if not feed_is_fresh(symbol):return
-    series=candles[symbol]
-    if len(series)<55:return
     with SessionLocal() as db:
         accounts=db.scalars(select(UserPaperAccount).where(UserPaperAccount.auto_enabled.is_(True))).all()
         for account in accounts:
+            series=aggregate_candles(candles[symbol],account.active_timeframe or "1m")
+            if len(series)<55:continue
             if db.scalar(select(UserPosition.id).where(UserPosition.user_id==account.user_id,UserPosition.symbol==symbol)) is not None:continue
             strategy_id=account.active_strategy
             if strategy_id.startswith("CUSTOM-"):
@@ -526,7 +527,9 @@ def auto(req:AutoIn,user=Depends(current_user)):
         if req.enabled and risk["status"]!="ACTIVE":
             raise HTTPException(status_code=403,detail="Risk lock: "+risk["reason"]+". Review risk status before re-enabling.")
         a.auto_enabled=req.enabled;a.risk_pct=POLICY["risk_per_trade_pct"]
-        if req.enabled:a.active_strategy=req.strategy_id or "STR-001"
+        if req.enabled:
+            a.active_strategy=req.strategy_id or "STR-001"
+            a.active_timeframe=req.timeframe
         db.commit()
     return account_snapshot(user["id"])
 
