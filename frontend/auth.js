@@ -2,7 +2,7 @@
  const $=id=>document.getElementById(id);
  const showError=msg=>{const el=$("authError");el.textContent=msg||"";el.style.display=msg?"block":"none";};
  const validConfig=()=>window.TRADEX_SUPABASE_URL&&!window.TRADEX_SUPABASE_URL.includes("YOUR_PROJECT")&&window.TRADEX_SUPABASE_ANON_KEY&&!window.TRADEX_SUPABASE_ANON_KEY.includes("YOUR_SUPABASE");
- let client=null,phonePending=null,recoveryMode=false;
+ let client=null,phonePending=null,recoveryMode=false,phoneVerified=false;
  window.authReady=(async()=>{
   if(!window.supabase||!validConfig()){showError("Setup needed: add your Supabase Project URL and publishable/anon key in frontend/supabase-config.js.");return null;}
   client=window.supabase.createClient(window.TRADEX_SUPABASE_URL,window.TRADEX_SUPABASE_ANON_KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
@@ -25,8 +25,9 @@
   if($("forgotPassword").dataset.recovery==="1"){const password=$("authPassword").value;if(password.length<8)throw new Error("Password must contain at least 8 characters.");const r=await client.auth.updateUser({password});if(!r.error){showError("Password updated successfully.");$("forgotPassword").dataset.recovery="";recoveryMode=false;setTimeout(()=>location.reload(),700);}return r;}
   const email=$("authEmail").value.trim();if(!email)throw new Error("Enter your email address first.");const r=await client.auth.resetPasswordForEmail(email,{redirectTo:location.origin});if(!r.error)showError("Password reset link sent. Check your email.");return r;
  });
- $("sendOtp").onclick=()=>run(async()=>{const phone=$("authPhone").value.trim();if(!/^\+[1-9][0-9]{7,14}$/.test(phone))throw new Error("Use international phone format, for example +919876543210.");const r=await client.auth.signInWithOtp({phone,options:{shouldCreateUser:true}});if(!r.error){phonePending=phone;$("otpArea").hidden=false;showError("OTP sent by SMS. Enter it below.");}return r;});
- $("verifyOtp").onclick=()=>run(async()=>{if(!phonePending)throw new Error("Request an OTP first.");const r=await client.auth.verifyOtp({phone:phonePending,token:$("authOtp").value.trim(),type:"sms"});if(r.error)throw r.error;const password=$("authPassword").value;if(!password||password.length<8)throw new Error("OTP verified. Enter a password of at least 8 characters in the Password field, then verify OTP again.");const u=await client.auth.updateUser({password});if(u.error)throw u.error;showError("Password set. Your phone login is ready.");setTimeout(()=>location.reload(),700);});
+ $("sendOtp").onclick=()=>run(async()=>{const phone=$("authPhone").value.trim();if(!/^\+[1-9][0-9]{7,14}$/.test(phone))throw new Error("Use international phone format, for example +919876543210.");const r=await client.auth.signInWithOtp({phone,options:{shouldCreateUser:true}});if(!r.error){phonePending=phone;phoneVerified=false;$("otpArea").hidden=false;$("savePhonePassword").hidden=true;showError("OTP sent by SMS. Enter it below.");}return r;});
+ $("verifyOtp").onclick=()=>run(async()=>{if(!phonePending)throw new Error("Request an OTP first.");const r=await client.auth.verifyOtp({phone:phonePending,token:$("authOtp").value.trim(),type:"sms"});if(r.error)throw r.error;phoneVerified=true;$("savePhonePassword").hidden=false;showError("Phone verified. Enter your new password above and select Set / reset phone password.");});
+ $("savePhonePassword").onclick=()=>run(async()=>{if(!phoneVerified)throw new Error("Verify your phone OTP first.");const password=$("authPassword").value;if(password.length<8)throw new Error("Password must contain at least 8 characters.");const r=await client.auth.updateUser({password});if(r.error)throw r.error;showError("Phone password saved. You can now sign in using your phone and password.");setTimeout(()=>location.reload(),700);});
  $("logoutBtn").onclick=()=>run(()=>client.auth.signOut());
  window.getTradeXAccessToken=async()=>{const c=client||await window.authReady;if(!c||recoveryMode)return null;const {data:{session}}=await c.auth.getSession();return session?session.access_token:null;};
 })();
