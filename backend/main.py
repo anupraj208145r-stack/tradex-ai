@@ -113,12 +113,12 @@ def user_risk_status(db, user_id:str, account, equity:float, unrealized:float, p
     day_key=time.strftime("%Y-%m-%d",time.gmtime())
     state=db.get(UserRiskState,user_id)
     if state is None:
-        state=UserRiskState(user_id=user_id,day_key=day_key,day_start_equity=equity,
+        state=UserRiskState(user_id=user_id,day_key=day_key,day_start_equity=max(float(account.balance),equity),
             equity_peak=equity,consecutive_losses=0,daily_locked=False,hard_locked=False,lock_reason="")
         db.add(state);db.flush()
     elif state.day_key != day_key:
         state.day_key=day_key
-        state.day_start_equity=equity
+        state.day_start_equity=max(float(account.balance),equity)
         state.daily_locked=False
         if not state.hard_locked:state.lock_reason=""
     state.equity_peak=max(float(state.equity_peak),equity)
@@ -285,6 +285,23 @@ async def publish():
         except Exception:dead.append(ws)
     for ws in dead:clients.pop(ws,None)
 
+def enforce_hard_risk_locks():
+    """Flatten paper positions when hard account-wide risk thresholds are hit."""
+    to_close=[]
+    with SessionLocal() as db:
+        accounts=db.scalars(select(UserPaperAccount)).all()
+        for account in accounts:
+            positions=db.scalars(select(UserPosition).where(UserPosition.user_id==account.user_id)).all()
+            if not positions:continue
+            floating=sum((prices.get(p.symbol,p.entry)-p.entry)*p.quantity*(1 if p.side=="BUY" else -1) for p in positions)
+            equity=account.balance+floating
+            risk=user_risk_status(db,account.user_id,account,equity,floating,positions)
+            if risk["hard_locked"]:
+                to_close.extend((account.user_id,p.id) for p in positions)
+        db.commit()
+    for uid,pid in to_close:
+        close_position(uid,pid,"risk_lock")
+
 async def on_tick(symbol:str,price:float,timestamp:int,source:str):
     if price<=0:return
     async with market_lock:
@@ -308,6 +325,7 @@ async def on_tick(symbol:str,price:float,timestamp:int,source:str):
         if closed:evaluate_auto(symbol)
         trail_auto_positions(symbol)
         check_exits(symbol)
+        enforce_hard_risk_locks()
     await publish()
 
 async def market_worker(symbol:str):
@@ -377,6 +395,10 @@ def reset(req:ResetIn,user=Depends(current_user)):
         db.query(UserTrade).filter(UserTrade.user_id==uid).delete();db.commit()
     return account_snapshot(user["id"])
 
+@app.get("/api/risk")
+def risk_status(user=Depends(current_user)):
+    return account_snapshot(user["id"])["risk"]
+
 @app.get("/api/quotes")
 def quotes():return quotes_meta
 
@@ -400,6 +422,8 @@ def order(req:OrderIn,user=Depends(current_user)):
             raise HTTPException(403,detail="Maximum open position count reached")
         if sum(1 for p in existing if p.symbol==req.symbol)>=POLICY["max_positions_per_symbol"]:
             raise HTTPException(403,detail="Maximum positions for this symbol reached")
+        if any(p.symbol==req.symbol and ((prices.get(p.symbol,p.entry)-p.entry)*(1 if p.side=="BUY" else -1))<0 for p in existing):
+            raise HTTPException(403,detail="Adding to a losing position on the same symbol is blocked")
         if req.quantity*prices[req.symbol]>max(a.balance,0)*5:
             raise HTTPException(400,"Paper order notional exceeds 5x account balance")
         entry=prices[req.symbol]
