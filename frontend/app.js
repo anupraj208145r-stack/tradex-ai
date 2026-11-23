@@ -7,16 +7,23 @@ function toast(message){const el=$("toast");el.textContent=message;el.classList.
 async function api(path, options={}){const token=await window.getTradeXAccessToken?.();if(!token)throw new Error("Please sign in again.");const response=await fetch(API+path,{...options,headers:{"Content-Type":"application/json",...(options.headers||{}),"Authorization":"Bearer "+token}});const data=await response.json();if(!response.ok)throw new Error(data.detail||"Request failed");return data;}
 function initChart(){
  const el=$("chart");
- chart=LightweightCharts.createChart(el,{width:el.clientWidth,height:295,layout:{background:{color:"#111a2d"},textColor:"#91a0ba"},grid:{vertLines:{color:"#1c2940"},horzLines:{color:"#1c2940"}},rightPriceScale:{borderColor:"#293852"},timeScale:{borderColor:"#293852",timeVisible:true,secondsVisible:false},crosshair:{mode:1},handleScroll:{mouseWheel:true,pressedMouseMove:true},handleScale:{mouseWheel:true,pinch:true}});
+ const getSize=()=>({width:Math.max(280,Math.floor(el.getBoundingClientRect().width)),height:Math.max(240,Math.min(430,Math.floor(el.getBoundingClientRect().height||295)))});
+ chart=LightweightCharts.createChart(el,{...getSize(),autoSize:true,layout:{background:{color:"#111a2d"},textColor:"#91a0ba"},grid:{vertLines:{color:"#1c2940"},horzLines:{color:"#1c2940"}},rightPriceScale:{borderColor:"#293852",minimumWidth:58},timeScale:{borderColor:"#293852",timeVisible:true,secondsVisible:false,rightOffset:5,barSpacing:8},crosshair:{mode:1},handleScroll:{mouseWheel:true,pressedMouseMove:true},handleScale:{mouseWheel:true,pinch:true},localization:{locale:"en-US"}});
  candleSeries=chart.addCandlestickSeries({upColor:"#28d6a1",downColor:"#ff6b7a",borderUpColor:"#28d6a1",borderDownColor:"#ff6b7a",wickUpColor:"#28d6a1",wickDownColor:"#ff6b7a",priceLineVisible:true});
  let resizeFrame=0;
- new ResizeObserver(()=>{cancelAnimationFrame(resizeFrame);resizeFrame=requestAnimationFrame(()=>chart.applyOptions({width:el.clientWidth}));}).observe(el);
+ const observer=new ResizeObserver(()=>{cancelAnimationFrame(resizeFrame);resizeFrame=requestAnimationFrame(()=>{const size=getSize();chart.applyOptions(size);});});
+ observer.observe(el);
+ window.addEventListener("beforeunload",()=>observer.disconnect(),{once:true});
 }
 async function loadCandles(){
  const rows=await api("/api/candles/"+symbol);
- candles=rows.filter(c=>Number.isFinite(Number(c.time))&&Number.isFinite(Number(c.open))&&Number.isFinite(Number(c.high))&&Number.isFinite(Number(c.low))&&Number.isFinite(Number(c.close))).map(c=>({time:Number(c.time),open:Number(c.open),high:Number(c.high),low:Number(c.low),close:Number(c.close)}));
+ const byTime=new Map();
+ for(const c of rows){const time=Number(c.time),open=Number(c.open),high=Number(c.high),low=Number(c.low),close=Number(c.close);
+  if(Number.isFinite(time)&&Number.isFinite(open)&&Number.isFinite(high)&&Number.isFinite(low)&&Number.isFinite(close)&&high>=low)byTime.set(time,{time,open,high,low,close});
+ }
+ candles=[...byTime.values()].sort((a,b)=>a.time-b.time).slice(-1000);
  candleSeries.setData(candles);
- if(candles.length) {
+ if(candles.length){
   chart.timeScale().fitContent();
   $("lastPrice").textContent=Number(candles[candles.length-1].close).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
  }
