@@ -158,11 +158,18 @@ class SupportTicket(Base):
 
 def init_db():
     Base.metadata.create_all(bind=engine)
-    # Add timeframe preference to existing installations without requiring a destructive migration.
-    columns={c["name"] for c in inspect(engine).get_columns("user_paper_accounts")}
-    if "active_timeframe" not in columns:
-        with engine.begin() as conn:
-            conn.exec_driver_sql("ALTER TABLE user_paper_accounts ADD COLUMN active_timeframe VARCHAR(8) NOT NULL DEFAULT '1m'")
+    # Add timeframe preference to both legacy and per-user account tables.
+    # create_all() does not add columns to tables that already exist.
+    inspector=inspect(engine)
+    with engine.begin() as conn:
+        for table_name in ("paper_accounts", "user_paper_accounts"):
+            if table_name not in inspector.get_table_names():
+                continue
+            columns={column["name"] for column in inspector.get_columns(table_name)}
+            if "active_timeframe" not in columns:
+                conn.exec_driver_sql(
+                    f"ALTER TABLE {table_name} ADD COLUMN active_timeframe VARCHAR(8) NOT NULL DEFAULT '1m'"
+                )
     with SessionLocal() as db:
         if db.get(PaperAccount, 1) is None:
             db.add(PaperAccount(id=1))
