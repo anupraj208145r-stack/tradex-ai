@@ -4,7 +4,7 @@ let ws=null, reconnectDelay=1000, lastAccountPaint=0;
 const $ = id => document.getElementById(id);
 const money = n => (n < 0 ? "-$" : "$") + Math.abs(Number(n || 0)).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 function toast(message){const el=$("toast");el.textContent=message;el.classList.add("show");setTimeout(()=>el.classList.remove("show"),2300);}
-async function api(path, options={}){const response=await fetch(API+path,{headers:{"Content-Type":"application/json"},...options});const data=await response.json();if(!response.ok)throw new Error(data.detail||"Request failed");return data;}
+async function api(path, options={}){const token=await window.getTradeXAccessToken?.();if(!token)throw new Error("Please sign in again.");const response=await fetch(API+path,{...options,headers:{"Content-Type":"application/json",...(options.headers||{}),"Authorization":"Bearer "+token}});const data=await response.json();if(!response.ok)throw new Error(data.detail||"Request failed");return data;}
 function initChart(){
  const el=$("chart");
  chart=LightweightCharts.createChart(el,{width:el.clientWidth,height:295,layout:{background:{color:"#111a2d"},textColor:"#91a0ba"},grid:{vertLines:{color:"#1c2940"},horzLines:{color:"#1c2940"}},rightPriceScale:{borderColor:"#293852"},timeScale:{borderColor:"#293852",timeVisible:true,secondsVisible:false},crosshair:{mode:1},handleScroll:{mouseWheel:true,pressedMouseMove:true},handleScale:{mouseWheel:true,pinch:true}});
@@ -60,7 +60,7 @@ async function refreshFeeds(){
 function connectMarketSocket(){
  if(ws&&ws.readyState<=1)return;
  const scheme=location.protocol==="https:"?"wss":"ws";
- ws=new WebSocket(scheme+"://"+location.host+"/ws/market");
+ window.getTradeXAccessToken().then(token=>{if(!token)return;ws=new WebSocket(scheme+"://"+location.host+"/ws/market?access_token="+encodeURIComponent(token));
  ws.onopen=()=>{reconnectDelay=1000;ws.send("subscribe");};
  ws.onmessage=event=>{
   let message;try{message=JSON.parse(event.data);}catch{return;}
@@ -74,6 +74,7 @@ function connectMarketSocket(){
  };
  ws.onclose=()=>{ws=null;setTimeout(connectMarketSocket,reconnectDelay);reconnectDelay=Math.min(reconnectDelay*2,15000);};
  ws.onerror=()=>{try{ws.close();}catch{}};
+ });
 }
 async function place(side){
  try{const body={symbol:$("orderSymbol").value,side,quantity:Number($("quantity").value),stop_loss:$("sl").value?Number($("sl").value):null,take_profit:$("tp").value?Number($("tp").value):null};await api("/api/orders",{method:"POST",body:JSON.stringify(body)});toast(side+" paper order opened");await refresh();}catch(e){toast(e.message);}
@@ -87,5 +88,5 @@ $("strategySearch").oninput=renderStrategies;
 $("saveCustom").onclick=async()=>{try{const body={name:$("customName").value,symbol:"BOTH",fast_ema:Number($("fastEma").value),slow_ema:Number($("slowEma").value),direction:"both"};const item=await api("/api/strategies/custom",{method:"POST",body:JSON.stringify(body)});strategies.push(item);renderStrategies();toast("Custom strategy saved as a draft");}catch(e){toast(e.message);}};
 $("positionsBody").onclick=async event=>{const id=event.target.dataset.close;if(id){try{await api("/api/positions/"+id+"/close",{method:"POST"});toast("Position closed");await refresh();}catch(e){toast(e.message);}}};
 document.querySelectorAll("[data-symbol]").forEach(button=>button.onclick=async()=>{symbol=button.dataset.symbol;document.querySelectorAll("[data-symbol]").forEach(b=>b.classList.toggle("active",b===button));$("chartTitle").textContent=symbol+(symbol==="XAUUSD"?" · Gold / US Dollar":" · Bitcoin / US Dollar");await loadCandles();});
-async function boot(){initChart();await loadStrategies();await loadCandles().catch(()=>{});await refresh();await refreshFeeds();connectMarketSocket();setInterval(refreshFeeds,30000);}
+async function boot(){await window.authReady;if(!await window.getTradeXAccessToken?.())return;initChart();await loadStrategies();await loadCandles().catch(()=>{});await refresh();await refreshFeeds();connectMarketSocket();setInterval(refreshFeeds,30000);}
 boot().catch(error=>toast(error.message));
