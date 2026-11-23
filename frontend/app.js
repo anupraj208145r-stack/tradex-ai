@@ -1,5 +1,5 @@
 const API = location.origin;
-let symbol = "XAUUSD", chart, candleSeries, candles = [], strategies = [];
+let symbol = "XAUUSD", chart, candleSeries, candles = [], strategies = [], riskLines = [];
 let ws=null, reconnectDelay=1000, lastAccountPaint=0;
 const $ = id => document.getElementById(id);
 const money = n => (n < 0 ? "-$" : "$") + Math.abs(Number(n || 0)).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -40,6 +40,14 @@ function updateChart(quote){
 }
 function renderPositions(positions,quotes){
  $("positionsBody").innerHTML=positions.length?positions.map(p=>{const mark=quotes[p.symbol]?.price??p.entry;const pnl=(mark-p.entry)*p.quantity*(p.side==="BUY"?1:-1);return '<tr><td><b>'+escapeHtml(p.symbol)+'</b></td><td class="'+(p.side==="BUY"?"side-buy":"side-sell")+'">'+p.side+'</td><td>'+Number(p.quantity).toFixed(4)+'</td><td>'+Number(p.entry).toFixed(2)+'</td><td>'+Number(mark).toFixed(2)+'</td><td>'+(p.stop_loss==null?"—":Number(p.stop_loss).toFixed(2))+'</td><td>'+(p.take_profit==null?"—":Number(p.take_profit).toFixed(2))+'</td><td class="'+(pnl>=0?"good":"bad")+'">'+money(pnl)+'</td><td><button class="close" data-close="'+escapeHtml(p.id)+'">Close</button></td></tr>';}).join(""):'<tr><td colspan="9" class="empty">No open positions</td></tr>';
+ if(candleSeries){
+  for(const line of riskLines)candleSeries.removePriceLine(line);
+  riskLines=[];
+  for(const p of positions.filter(item=>item.symbol===symbol)){
+   if(p.stop_loss!=null)riskLines.push(candleSeries.createPriceLine({price:Number(p.stop_loss),color:"#ff6b7a",lineWidth:2,lineStyle:LightweightCharts.LineStyle.Dashed,axisLabelVisible:true,title:"SL"}));
+   if(p.take_profit!=null)riskLines.push(candleSeries.createPriceLine({price:Number(p.take_profit),color:"#28d6a1",lineWidth:2,lineStyle:LightweightCharts.LineStyle.Dashed,axisLabelVisible:true,title:"TP"}));
+  }
+ }
 }
 function renderHistory(history){$("historyBody").innerHTML=history.length?history.slice().reverse().map(p=>'<tr><td><b>'+p.symbol+'</b></td><td>'+p.side+'</td><td>'+p.entry.toFixed(2)+'</td><td>'+p.exit.toFixed(2)+'</td><td class="'+(p.pnl>=0?"good":"bad")+'">'+money(p.pnl)+'</td><td>'+p.reason+'</td></tr>').join(""):'<tr><td colspan="6" class="empty">No completed trades</td></tr>';}
 function paintAccount(account,quotes){
