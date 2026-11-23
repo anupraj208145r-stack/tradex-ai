@@ -20,7 +20,7 @@
    try{await syncServerSession(session);}catch(e){await client.auth.signOut();location.replace("/login");return null;}
    const user=$("userEmail");if(user)user.textContent=session.user.email||session.user.phone||"Signed in";
   }
-  client.auth.onAuthStateChange((event)=>{if(event==="SIGNED_OUT"&&isDashboard)location.replace("/login");});
+  client.auth.onAuthStateChange((event,nextSession)=>{if(event==="SIGNED_OUT"&&isDashboard)location.replace("/login");if(event==="TOKEN_REFRESHED"&&nextSession?.access_token)fetch("/auth/session",{method:"POST",headers:{Authorization:"Bearer "+nextSession.access_token}}).catch(()=>{});});
   return client;
  })();
  async function finishLogin(){const {data:{session}}=await client.auth.getSession();await syncServerSession(session);location.assign("/dashboard");}
