@@ -47,7 +47,7 @@ class CustomStrategyIn(BaseModel):
 
 def feed_is_fresh(symbol:str,max_age_seconds:int=60)->bool:
     meta=quotes_meta.get(symbol)
-    return bool(meta and providers.STATUS.get(symbol)=="connected" and
+    return bool(meta and meta.get("live") is True and providers.STATUS.get(symbol)=="connected" and
                 time.time()-int(meta.get("time",0))<=max_age_seconds)
 
 def db_account(db):
@@ -172,7 +172,7 @@ async def on_tick(symbol:str,price:float,timestamp:int,source:str):
     async with market_lock:
         prices[symbol]=price
         quotes_meta[symbol]={"symbol":symbol,"price":round(price,5),"time":timestamp,
-            "feed":source,"status":"connected"}
+            "feed":source,"status":"connected","live":True}
         minute=timestamp-(timestamp%60)
         current=current_candle.get(symbol)
         closed=False
@@ -194,14 +194,16 @@ async def on_tick(symbol:str,price:float,timestamp:int,source:str):
 async def market_worker(symbol:str):
     try:
         history=await providers.history(symbol)
-        for c in history:
-            candles[symbol].append({k:c[k] for k in ("time","open","high","low","close")})
-            persist_candle(symbol,c,c.get("source","history"))
         if history:
+            merged={int(c["time"]):{k:c[k] for k in ("time","open","high","low","close")} for c in candles[symbol]}
+            for c in history:
+                merged[int(c["time"]) ]={k:c[k] for k in ("time","open","high","low","close")}
+                persist_candle(symbol,c,c.get("source","history"))
+            candles[symbol]=[merged[t] for t in sorted(merged)][-1000:]
             last=history[-1]
             prices[symbol]=float(last["close"])
             quotes_meta[symbol]={"symbol":symbol,"price":prices[symbol],"time":last["time"],
-                "feed":last.get("source","history"),"status":"history_only"}
+                "feed":last.get("source","history"),"status":"history_only","live":False}
             current_candle[symbol]={k:last[k] for k in ("time","open","high","low","close")}
     except Exception as exc:
         providers.LAST_ERROR[symbol]=str(exc)[:240]
@@ -227,7 +229,7 @@ async def lifespan(app:FastAPI):
             candles[symbol]=[{"time":r.time,"open":r.open,"high":r.high,"low":r.low,"close":r.close} for r in reversed(rows)]
             if candles[symbol]:
                 last=candles[symbol][-1];prices[symbol]=last["close"]
-                quotes_meta[symbol]={"symbol":symbol,"price":last["close"],"time":last["time"],"feed":"database","status":"history_only"}
+                quotes_meta[symbol]={"symbol":symbol,"price":last["close"],"time":last["time"],"feed":"database","status":"history_only","live":False}
     engine_status="running"
     background_tasks.extend([asyncio.create_task(market_worker(s)) for s in SYMBOLS])
     try:yield
