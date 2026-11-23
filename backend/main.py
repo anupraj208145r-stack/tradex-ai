@@ -26,7 +26,8 @@ candles:dict[str,list[dict]]={s:[] for s in SYMBOLS}
 current_candle:dict[str,dict]={}
 clients:dict[WebSocket,str]={}
 market_lock=asyncio.Lock()
-engine_status="starting"\nlast_auto_bar:dict[tuple[str,str],int]={}
+engine_status="starting"
+last_auto_bar:dict[tuple[str,str],int]={}
 
 
 class SupportRequestIn(BaseModel):
@@ -184,7 +185,10 @@ def evaluate_auto(symbol:str):
         for account in accounts:
             series=aggregate_candles(candles[symbol],account.active_timeframe or "1m")
             if len(series)<55:continue
-            bar_time=int(series[-1]["time"]);bar_key=(account.user_id,symbol)\n            if last_auto_bar.get(bar_key)==bar_time:continue\n            last_auto_bar[bar_key]=bar_time\n            if db.scalar(select(UserPosition.id).where(UserPosition.user_id==account.user_id,UserPosition.symbol==symbol)) is not None:continue
+            bar_time=int(series[-1]["time"]);bar_key=(account.user_id,symbol)
+            if last_auto_bar.get(bar_key)==bar_time:continue
+            last_auto_bar[bar_key]=bar_time
+            if db.scalar(select(UserPosition.id).where(UserPosition.user_id==account.user_id,UserPosition.symbol==symbol)) is not None:continue
             strategy_id=account.active_strategy
             if strategy_id.startswith("CUSTOM-"):
                 custom=db.get(UserCustomStrategy,strategy_id)
