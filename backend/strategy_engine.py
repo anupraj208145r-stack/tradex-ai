@@ -223,6 +223,35 @@ def signal_for(strategy_id:str,candles:list[dict])->str|None:
         total=sum(float(v.get("volume",0)) for v in w)
         cmf=sum(mf)/total if total else 0
         return "BUY" if cmf>0.1 else "SELL" if cmf<-.1 else None
+    if strategy_id in ("STR-058","STR-059","STR-060","STR-061","STR-062"):
+        if len(c)<16:return None
+        w=c[-11:-1];bar=c[-1];hi=max(float(v["high"]) for v in w);lo=min(float(v["low"]) for v in w)
+        # Liquidity sweep: trade through a prior 10-bar extreme and close back inside.
+        if strategy_id=="STR-058":
+            return "BUY" if float(bar["low"])<lo and q>lo else "SELL" if float(bar["high"])>hi and q<hi else None
+        # BOS / CHoCH proxy: confirmed close beyond the prior swing range.
+        if strategy_id in ("STR-059","STR-060"):
+            old=c[-2];old_hi=max(float(v["high"]) for v in c[-12:-2]);old_lo=min(float(v["low"]) for v in c[-12:-2])
+            if strategy_id=="STR-059":
+                return "BUY" if q>hi else "SELL" if q<lo else None
+            return "BUY" if q>old_hi and float(old["close"])<old_hi else "SELL" if q<old_lo and float(old["close"])>old_lo else None
+        # FVG retest: current candle overlaps a still-open three-candle imbalance and closes in its direction.
+        if strategy_id=="STR-061":
+            a,b=c[-3],c[-2]
+            bull=float(b["low"])>float(a["high"]) and float(bar["low"])<=float(b["low"]) and q>float(a["high"])
+            bear=float(b["high"])<float(a["low"]) and float(bar["high"])>=float(b["high"]) and q<float(a["low"])
+            return "BUY" if bull else "SELL" if bear else None
+        # Order-block retest proxy: return to last opposing candle before a 10-bar structure break.
+        if strategy_id=="STR-062":
+            prior=c[-16:-1];base_hi=max(float(v["high"]) for v in prior[-10:]);base_lo=min(float(v["low"]) for v in prior[-10:])
+            bull_break=q>base_hi;bear_break=q<base_lo
+            if bull_break:
+                ob=next((v for v in reversed(prior[-5:]) if float(v["close"])<float(v["open"])),None)
+                return "BUY" if ob and float(bar["low"])<=float(ob["open"]) and q>float(ob["open"]) else None
+            if bear_break:
+                ob=next((v for v in reversed(prior[-5:]) if float(v["close"])>float(v["open"])),None)
+                return "SELL" if ob and float(bar["high"])>=float(ob["open"]) and q<float(ob["open"]) else None
+            return None
     if strategy_id=="STR-047":
         n=25;w=c[-n:]
         hi=max(range(n),key=lambda i:w[i]["high"]);lo=max(range(n),key=lambda i:w[i]["low"])
@@ -240,7 +269,7 @@ SUPPORTED_STRATEGIES = {
  "STR-019","STR-020","STR-025",
  "STR-033","STR-034","STR-035","STR-036","STR-037","STR-038","STR-039",
  "STR-040","STR-044","STR-047","STR-048","STR-049",
- "STR-050","STR-052","STR-053","STR-056","STR-057"
+ "STR-050","STR-052","STR-053","STR-056","STR-057","STR-058","STR-059","STR-060","STR-061","STR-062"
 }
 
 def atr_value(candles:list[dict],period:int=14)->float|None:
