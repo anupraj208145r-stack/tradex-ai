@@ -41,6 +41,47 @@ References:
 
 **Important:** XAU/USD spot data is a market-data reference, not necessarily the same as any broker's XAUUSD CFD bid/ask. The current paper simulator does not yet model bid/ask spread, CFD contract size, swaps, commissions, or slippage. Do not interpret its P&L as broker-equivalent.
 
+## Railway deployment (Free-plan test deployment)
+
+This repository is prepared to run on Railway using its Dockerfile. The container listens on Railway's injected `PORT` (falling back to 8000 for local Docker). The API health endpoint is `/api/health`.
+
+**Free-plan constraints are important:** Railway currently includes $1/month of resource usage, services can sleep after 5–10 minutes of outbound inactivity, and the free workspace has one persistent volume (0.5 GB). Free services are not guaranteed to stay online continuously. The one-time new-account trial is separate: $5 for 30 days. When that trial expires, free-plan usage limits apply. Review current [Railway Free plan documentation](https://docs.railway.com/pricing/free-plan) before deploying.
+
+### Recommended free topology
+
+Use one Railway project with exactly two services:
+
+1. **PostgreSQL** — Railway's Postgres template. Keep its single persistent volume attached to this database service. This is where account, positions, closed trades, custom strategies, and candles are stored.
+2. **TradeX AI app** — deploy this GitHub repository from branch `milestone/live-data-persistence`, using the repository Dockerfile. Do not attach a second volume to the app on the Free plan; it would exceed the one-volume project allowance. The app is stateless when `DATABASE_URL` points to PostgreSQL.
+
+### Setup steps
+
+1. Sign in at [Railway](https://railway.com/), create a project, and add a PostgreSQL database.
+2. Add a service from GitHub and select `anupraj208145r-stack/tradex-ai`. Select branch `milestone/live-data-persistence`. Railway detects the root `Dockerfile`.
+3. In the app service Variables, add:
+   - `DATABASE_URL` = reference the Postgres service's `DATABASE_URL` variable using Railway's variable-reference picker (usually `${{Postgres.DATABASE_URL}}`; use the exact service name shown in your project).
+   - `TWELVEDATA_API_KEY` = your private Twelve Data API key. This is optional for deployment, but required for live XAU/USD.
+   - `CORS_ORIGINS` = your app's exact public origin if you use a separate frontend. For the bundled same-origin frontend, `http://localhost:8000` is not a production domain; set the Railway app origin or an appropriate exact origin.
+   - `AUTO_RESUME_ON_RESTART` = `false`.
+4. In app service Settings, generate a public domain. Set Healthcheck Path to `/api/health` and Healthcheck Timeout to 120 seconds.
+5. Set the restart policy to `On Failure` (Free-plan maximum: 10 retries). Free plan does not support `Always`.
+6. Deploy and inspect app logs. Check `https://YOUR-APP.up.railway.app/api/health` and confirm `mode=PAPER_ONLY`, `broker_connected=false`, and each feed's status.
+7. Open the app domain. BTCUSD should connect to Coinbase. XAUUSD remains unavailable until the Twelve Data key and real-time entitlement are valid. Auto trading must remain off unless both feeds show fresh live readiness.
+
+### Persistence and recovery verification
+
+- Open a paper position, note the ID and account balance.
+- Trigger an app redeploy/restart. Confirm the position and account balance remain in PostgreSQL.
+- Confirm auto trading is disabled after restart (the safe default).
+- Confirm the database service still has its persistent volume attached.
+- Do not delete the Postgres volume or project when cleaning up deployments; that permanently destroys stored paper data.
+
+### Cost and uptime expectations
+
+The Free plan's $1 monthly usage credit is shared across the app, database, CPU, RAM, egress, and volume storage. A continuously active market-data WebSocket can keep a service awake and consume credits; when the monthly credit is exhausted, services stop until the next billing cycle or plan change. Free plan is therefore suitable for initial testing, not dependable 24/7 paper trading. For always-on operation, Railway currently points to Hobby at $5/month minimum usage (includes $5 usage credit); actual usage can exceed the minimum. Set a usage limit/alerts and inspect actual usage before leaving it unattended.
+
+**Do not treat Railway's deployment healthcheck as continuous monitoring:** Railway uses it during deployment activation, not as an ongoing uptime monitor. Add an external uptime monitor and alerting before unattended operation.
+
 ## Local setup (Windows PowerShell)
 
 1. Install Python 3.12+ and Docker Desktop.

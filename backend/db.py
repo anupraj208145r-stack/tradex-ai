@@ -6,6 +6,11 @@ from sqlalchemy import create_engine, String, Float, Integer, Boolean, BigIntege
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./data/tradex.db")
+# Railway Postgres exposes a postgresql:// URL; use the installed psycopg v3 driver.
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = "postgresql+psycopg://" + DATABASE_URL.removeprefix("postgres://")
+elif DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = "postgresql+psycopg://" + DATABASE_URL.removeprefix("postgresql://")
 if DATABASE_URL.startswith("sqlite:///"):
     db_path = DATABASE_URL.removeprefix("sqlite:///")
     if db_path != ":memory:":
