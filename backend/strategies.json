@@ -5,55 +5,55 @@
     "category": "Trend",
     "rule_summary": "EMA fast crosses EMA slow",
     "executable": true,
-    "status": "template"
+    "status": "implemented"
   },
   {
     "id": "STR-002",
     "name": "SMA Crossover",
     "category": "Trend",
     "rule_summary": "SMA fast crosses SMA slow",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-003",
     "name": "Triple EMA",
     "category": "Trend",
     "rule_summary": "EMA 9/21/50 alignment",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-004",
     "name": "MACD Signal Cross",
     "category": "Momentum",
     "rule_summary": "MACD crosses signal line",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-005",
     "name": "MACD Zero Line",
     "category": "Momentum",
     "rule_summary": "MACD crosses zero",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-006",
     "name": "ADX Trend Filter",
     "category": "Trend",
     "rule_summary": "ADX above threshold with DI direction",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-007",
     "name": "Supertrend",
     "category": "Trend",
     "rule_summary": "Supertrend direction flips",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-008",
@@ -76,48 +76,48 @@
     "name": "Donchian Breakout",
     "category": "Breakout",
     "rule_summary": "Close breaks channel high/low",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-011",
     "name": "Bollinger Mean Reversion",
     "category": "Mean Reversion",
     "rule_summary": "Price closes outside band then re-enters",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-012",
     "name": "Bollinger Squeeze",
     "category": "Volatility",
     "rule_summary": "Low bandwidth breakout",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-013",
     "name": "Keltner Breakout",
     "category": "Breakout",
     "rule_summary": "Close breaks Keltner channel",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-014",
     "name": "RSI 30/70",
     "category": "Oscillator",
     "rule_summary": "RSI exits oversold/overbought",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-015",
     "name": "RSI 50 Cross",
     "category": "Momentum",
     "rule_summary": "RSI crosses midpoint",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-016",
@@ -132,8 +132,8 @@
     "name": "Stochastic Cross",
     "category": "Oscillator",
     "rule_summary": "%K crosses %D in extremes",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-018",
@@ -148,16 +148,16 @@
     "name": "CCI Reversal",
     "category": "Oscillator",
     "rule_summary": "CCI returns from extreme",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-020",
     "name": "Williams %R",
     "category": "Oscillator",
     "rule_summary": "Williams %R exits extreme",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-021",
@@ -172,40 +172,40 @@
     "name": "OBV Trend",
     "category": "Volume",
     "rule_summary": "OBV confirms price trend",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-023",
     "name": "VWAP Reclaim",
     "category": "Intraday",
     "rule_summary": "Price reclaims VWAP",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-024",
     "name": "VWAP Rejection",
     "category": "Intraday",
     "rule_summary": "Price rejects VWAP",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-025",
     "name": "ATR Breakout",
     "category": "Volatility",
     "rule_summary": "Range expands beyond ATR threshold",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-026",
     "name": "ATR Trailing Trend",
     "category": "Risk",
     "rule_summary": "ATR trend with trailing stop",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-027",
@@ -260,64 +260,64 @@
     "name": "Bullish Engulfing",
     "category": "Candlestick",
     "rule_summary": "Bullish engulfing at support",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-034",
     "name": "Bearish Engulfing",
     "category": "Candlestick",
     "rule_summary": "Bearish engulfing at resistance",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-035",
     "name": "Pin Bar Reversal",
     "category": "Candlestick",
     "rule_summary": "Long wick rejection",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-036",
     "name": "Inside Bar Breakout",
     "category": "Candlestick",
     "rule_summary": "Break of inside-bar range",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-037",
     "name": "Three White Soldiers",
     "category": "Candlestick",
     "rule_summary": "Three-candle bullish reversal",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-038",
     "name": "Three Black Crows",
     "category": "Candlestick",
     "rule_summary": "Three-candle bearish reversal",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-039",
     "name": "Morning Star",
     "category": "Candlestick",
     "rule_summary": "Three-candle bullish reversal",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-040",
     "name": "Evening Star",
     "category": "Candlestick",
     "rule_summary": "Three-candle bearish reversal",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-041",
@@ -348,56 +348,56 @@
     "name": "Heikin Ashi Trend",
     "category": "Trend",
     "rule_summary": "Heikin Ashi color sequence",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-045",
     "name": "Volume Spike Breakout",
     "category": "Volume",
     "rule_summary": "Volume expansion with range break",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-046",
     "name": "Chaikin Money Flow",
     "category": "Volume",
     "rule_summary": "CMF crosses zero",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-047",
     "name": "Aroon Trend",
     "category": "Trend",
     "rule_summary": "Aroon up/down crossover",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-048",
     "name": "DMI Crossover",
     "category": "Trend",
     "rule_summary": "+DI crosses -DI",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-049",
     "name": "ROC Momentum",
     "category": "Momentum",
     "rule_summary": "Rate of change crosses zero",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-050",
     "name": "Momentum Breakout",
     "category": "Momentum",
     "rule_summary": "Momentum makes new lookback high",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-051",
@@ -412,48 +412,48 @@
     "name": "EMA + RSI Confluence",
     "category": "Hybrid",
     "rule_summary": "EMA trend and RSI confirmation",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-053",
     "name": "MACD + ADX",
     "category": "Hybrid",
     "rule_summary": "MACD direction with ADX strength",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-054",
     "name": "Supertrend + RSI",
     "category": "Hybrid",
     "rule_summary": "Supertrend flip with RSI filter",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-055",
     "name": "VWAP + RSI",
     "category": "Hybrid",
     "rule_summary": "VWAP side with RSI confirmation",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-056",
     "name": "Bollinger + RSI",
     "category": "Hybrid",
     "rule_summary": "Band touch with RSI extreme",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-057",
     "name": "Donchian + ADX",
     "category": "Hybrid",
     "rule_summary": "Channel breakout with trend strength",
-    "executable": false,
-    "status": "template"
+    "executable": true,
+    "status": "implemented"
   },
   {
     "id": "STR-058",
