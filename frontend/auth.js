@@ -19,7 +19,7 @@
  })();
  async function run(action){showError("");try{if(!client)throw new Error("Supabase is not configured yet.");const result=await action();if(result&&result.error)throw result.error;}catch(e){showError(e.message||"Authentication failed. Please try again.");}}
  $("emailLogin").onclick=()=>run(async()=>{const r=await client.auth.signInWithPassword({email:$("authEmail").value.trim(),password:$("authPassword").value});if(!r.error)location.reload();return r;});
- $("emailSignup").onclick=()=>run(async()=>{const r=await client.auth.signUp({email:$("authEmail").value.trim(),password:$("authPassword").value,options:{emailRedirectTo:location.origin}});if(!r.error&&!r.data.session)showError("Check your email to confirm your account, then sign in.");return r;});
+ $("emailSignup").onclick=()=>run(async()=>{const r=await client.auth.signUp({email:$("authEmail").value.trim(),password:$("authPassword").value,options:{emailRedirectTo:location.origin}});if(!r.error&&r.data.session)location.reload();else if(!r.error)showError("Check your email to confirm your account, then sign in.");return r;});
  $("googleLogin").onclick=()=>run(()=>client.auth.signInWithOAuth({provider:"google",options:{redirectTo:location.origin}}));
  $("forgotPassword").onclick=()=>run(async()=>{
   if($("forgotPassword").dataset.recovery==="1"){const password=$("authPassword").value;if(password.length<8)throw new Error("Password must contain at least 8 characters.");const r=await client.auth.updateUser({password});if(!r.error){showError("Password updated successfully.");$("forgotPassword").dataset.recovery="";recoveryMode=false;setTimeout(()=>location.reload(),700);}return r;}
