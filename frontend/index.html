@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#0b1020"><title>TradeX AI — Paper Trading</title>
+<link rel="stylesheet" href="/styles.css">
+<script src="https://unpkg.com/lightweight-charts@4.2.2/dist/lightweight-charts.standalone.production.js"></script>
+</head><body>
+<div class="app">
+<aside class="sidebar">
+  <div class="brand"><span class="logo">T</span><div><b>TradeX AI</b><small>TRADING TERMINAL</small></div></div>
+  <div class="paper">● PAPER MODE ONLY</div>
+  <nav><a href="#overview">Dashboard</a><a href="#markets">Markets & Chart</a><a href="#automation">Auto Trader</a><a href="#strategies">Strategy Library</a><a href="#positions">Open Positions</a><a href="#history">Trade History</a></nav>
+  <div class="notice"><b>Simulation only</b><p>No broker connection, no deposits, and no real orders. Prices in this starter are synthetic demo data.</p></div>
+</aside>
+<main>
+<header><div><small>WORKSPACE / OVERVIEW</small><h1>Trading Dashboard</h1></div><button id="resetBtn" class="secondary">↺ Reset paper account</button></header>
+<section class="metrics" id="overview">
+ <article><label>Paper balance</label><strong id="balance">$10,000.00</strong><small>Virtual capital</small></article>
+ <article><label>Equity</label><strong id="equity">$10,000.00</strong><small>Balance + open P&L</small></article>
+ <article><label>Realized P&L</label><strong id="realized">$0.00</strong><small>Closed positions</small></article>
+ <article><label>Unrealized P&L</label><strong id="unrealized">$0.00</strong><small>Open positions</small></article>
+</section>
+<section class="topgrid">
+ <article class="panel" id="markets">
+  <div class="panelhead"><div><small>MARKET WATCH</small><h2 id="chartTitle">XAUUSD · Gold / US Dollar</h2></div>
+   <div class="tabs"><button data-symbol="XAUUSD" class="active">XAUUSD</button><button data-symbol="BTCUSD">BTCUSD</button></div></div>
+  <div class="price"><b id="lastPrice">2,350.00</b><span class="demo">SYNTHETIC DEMO FEED</span></div>
+  <div id="chart"></div><small class="muted">1m candles · illustrative simulator prices, not exchange quotes</small>
+ </article>
+ <article class="panel">
+  <small>QUICK ORDER</small><h2>Manual paper trade</h2>
+  <label>Instrument<select id="orderSymbol"><option>XAUUSD</option><option>BTCUSD</option></select></label>
+  <label>Quantity<input id="quantity" type="number" value="0.01" min="0.001" step="0.001"></label>
+  <div class="twocol"><label>Stop loss<input id="sl" type="number" placeholder="Optional"></label><label>Take profit<input id="tp" type="number" placeholder="Optional"></label></div>
+  <div class="buttons"><button id="buyBtn" class="buy">BUY / LONG</button><button id="sellBtn" class="sell">SELL / SHORT</button></div>
+  <p class="hint">Filled at current simulator quote. No live market or broker order is sent.</p>
+ </article>
+</section>
+<section class="bottomgrid">
+ <article class="panel" id="automation">
+  <small>AUTOMATION</small><h2>Auto trader</h2>
+  <label>Executable strategy<select id="autoStrategy"></select></label>
+  <label>Risk per trade <b id="riskLabel">1.00%</b><input id="risk" type="range" min=".25" max="5" step=".25" value="1"></label>
+  <div class="buttons"><button id="autoBtn" class="primary">▶ Start auto trading</button><button id="stopBtn" class="secondary" disabled>■ Stop</button></div>
+  <p class="hint">Only EMA 9/21 crossover is executable in this starter. Other entries are research/templates, not completed bots.</p>
+  <p id="botStatus" class="status">● AUTO TRADING STOPPED</p>
+ </article>
+ <article class="panel" id="strategies">
+  <div class="panelhead"><div><small>PREDEFINED STRATEGIES</small><h2>Strategy Library <span id="strategyCount" class="count">67</span></h2></div><input id="strategySearch" class="search" placeholder="Search…"></div>
+  <div id="strategyList" class="strategylist"></div>
+  <div class="builder"><b>Custom EMA strategy draft</b><input id="customName" placeholder="Give your strategy a name">
+   <div class="twocol"><label>Fast EMA<input id="fastEma" type="number" value="9"></label><label>Slow EMA<input id="slowEma" type="number" value="21"></label></div>
+   <button id="saveCustom" class="secondary wide">＋ Save strategy draft</button>
+  </div>
+ </article>
+</section>
+<section class="panel tablepanel" id="positions">
+ <div class="panelhead"><div><small>OPEN RISK</small><h2>Open Positions</h2></div><span id="positionCount" class="count">0</span></div>
+ <div class="tablewrap"><table><thead><tr><th>SYMBOL</th><th>SIDE</th><th>QTY</th><th>ENTRY</th><th>MARK</th><th>UNREALIZED P&L</th><th></th></tr></thead><tbody id="positionsBody"><tr><td colspan="7" class="empty">No open positions</td></tr></tbody></table></div>
+</section>
+<section class="panel tablepanel" id="history">
+ <div class="panelhead"><div><small>ACTIVITY</small><h2>Trade History</h2></div><span id="historyCount" class="count">0</span></div>
+ <div class="tablewrap"><table><thead><tr><th>SYMBOL</th><th>SIDE</th><th>ENTRY</th><th>EXIT</th><th>RESULT</th><th>REASON</th></tr></thead><tbody id="historyBody"><tr><td colspan="6" class="empty">No completed trades</td></tr></tbody></table></div>
+</section>
+<footer>TradeX AI v0.1 · Paper trading only · Synthetic demo prices · Not investment advice</footer>
+</main></div><div id="toast" class="toast"></div><script src="/app.js"></script></body></html>
