@@ -71,14 +71,23 @@ async def gold_stream(on_tick: TickCallback):
             STATUS["XAUUSD"]="connecting"
             async with websockets.connect(url,ping_interval=20,ping_timeout=20,close_timeout=5) as ws:
                 await ws.send(json.dumps({"action":"subscribe","params":{"symbols":"XAU/USD"}}))
+                async def heartbeat():
+                    while True:
+                        await asyncio.sleep(10)
+                        await ws.send(json.dumps({"action":"heartbeat"}))
+                heartbeat_task=asyncio.create_task(heartbeat())
                 STATUS["XAUUSD"]="connected"; LAST_ERROR["XAUUSD"]=None; delay=1
-                async for raw in ws:
+                try:
+                    async for raw in ws:
                     message=json.loads(raw)
                     if message.get("event")=="price" and message.get("symbol") in ("XAU/USD","XAUUSD"):
                         await on_tick("XAUUSD",float(message["price"]),
                             int(message.get("timestamp") or time.time()),"twelvedata")
-                    elif message.get("status")=="error" or message.get("event")=="error":
-                        raise RuntimeError(message.get("message") or str(message))
+                        elif message.get("status")=="error" or message.get("event")=="error":
+                            raise RuntimeError(message.get("message") or str(message))
+                finally:
+                    heartbeat_task.cancel()
+                    await asyncio.gather(heartbeat_task,return_exceptions=True)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
