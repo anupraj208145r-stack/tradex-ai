@@ -130,6 +130,7 @@ def evaluate_auto(symbol:str):
     with SessionLocal() as db:
         a=db_account(db)
         if not a.auto_enabled or a.active_strategy!="STR-001":return
+        if any(providers.STATUS.get(s)!="connected" for s in SYMBOLS):return
         if db.scalar(select(Position.id).where(Position.symbol==symbol)) is not None:return
         series=candles[symbol]
         closes=[float(c["close"]) for c in series]
@@ -210,8 +211,10 @@ async def lifespan(app:FastAPI):
     init_db()
     with SessionLocal() as db:
         a=db_account(db)
-        # Never restart an unattended strategy automatically after process recovery.
-        a.auto_enabled=False;db.commit()
+        # Resume only when explicitly enabled by deployment configuration.
+        if os.getenv("AUTO_RESUME_ON_RESTART","false").lower() not in ("1","true","yes"):
+            a.auto_enabled=False
+        db.commit()
         for p in db.scalars(select(Position)).all():
             pass
         for symbol in SYMBOLS:
