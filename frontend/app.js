@@ -119,5 +119,33 @@ $("showFvg").onchange=()=>window.drawTradeXZones?.();$("showOb").onchange=()=>wi
 $("zoomIn").onclick=()=>{chartBarSpacing=Math.min(30,chartBarSpacing*1.25);chart.timeScale().applyOptions({barSpacing:chartBarSpacing});};
 $("zoomOut").onclick=()=>{chartBarSpacing=Math.max(2,chartBarSpacing/1.25);chart.timeScale().applyOptions({barSpacing:chartBarSpacing});};
 $("restoreChart").onclick=()=>{chartBarSpacing=8;chart.timeScale().applyOptions({barSpacing:chartBarSpacing,rightOffset:5});chart.priceScale("right").applyOptions({autoScale:true});chart.timeScale().fitContent();};
-async function boot(){await window.authReady;if(!await window.getTradeXAccessToken?.())return;initChart();const initial=await refresh();await loadStrategies(initial.account.active_strategy);await loadCandles().catch(()=>{});await refreshFeeds();connectMarketSocket();setInterval(refreshFeeds,30000);}
+async function boot(){
+ showView(location.hash.slice(1)||"trading");
+ await window.authReady;
+ if(!await window.getTradeXAccessToken?.())return;
+ initChart();
+ await refreshFeeds();
+ connectMarketSocket();
+ setInterval(refreshFeeds,15000);
+ let activeAccount=null;
+ try{
+  const initial=await refresh();
+  activeAccount=initial.account;
+ }catch(error){
+  console.error("Account bootstrap failed:",error);
+  toast("Account data failed to load: "+error.message);
+ }
+ // Strategy loading must be independent: an account API failure must not
+ // prevent the public strategy catalogue and the user's custom strategies
+ // from being requested and rendered.
+ try{
+  await loadStrategies(activeAccount?.active_strategy);
+ }catch(error){
+  console.error("Strategy bootstrap failed:",error);
+  $("strategyList").innerHTML='<div class="empty-state">Strategies could not be loaded: '+escapeHtml(error.message)+'. Please refresh after checking your session.</div>';
+  $("strategyCount").textContent="0";
+  toast("Strategies failed to load: "+error.message);
+ }
+ try{await loadCandles();}catch(error){console.error("Candle load failed:",error);$("chartCaption").textContent="Historical candles unavailable · checking live feed";}
+}
 boot().catch(error=>toast(error.message));
