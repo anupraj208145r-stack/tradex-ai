@@ -64,7 +64,7 @@
  <article class="panel" id="automation">
   <small>AUTOMATION</small><h2>Auto trader</h2>
   <label>Executable strategy<select id="autoStrategy"></select></label>
-  <label>Risk per trade <b id="riskLabel">1.00%</b><input id="risk" type="range" min=".25" max="5" step=".25" value="0.5"></label>
+  <label>Risk per trade <b id="riskLabel">0.50%</b><input id="risk" type="range" min=".05" max=".5" step=".05" value="0.5"></label>
   <div class="buttons"><button id="autoBtn" class="primary">▶ Start auto trading</button><button id="stopBtn" class="secondary" disabled>■ Stop</button></div>
   <p class="hint">Signals are evaluated on closed 1-minute candles. Adaptive ATR stops, 2R targets and risk-based paper sizing are applied automatically. Strategy performance is not guaranteed.</p>
   <p id="botStatus" class="status">● AUTO TRADING STOPPED</p>
