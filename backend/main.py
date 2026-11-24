@@ -27,7 +27,7 @@ current_candle:dict[str,dict]={}
 clients:dict[WebSocket,str]={}
 market_lock=asyncio.Lock()
 engine_status="starting"
-last_auto_bar:dict[tuple[str,str],int]={}
+last_auto_bar:dict[tuple[str,str,str],int]={}
 
 
 class SupportRequestIn(BaseModel):
@@ -79,6 +79,7 @@ class AutoIn(BaseModel):
     enabled:bool
     strategy_id:str|None=None
     risk_pct:float=Field(default=1.0,gt=0,le=5)
+    timeframe:Literal["1m","5m","15m","30m","1h","4h","1d"]="1m"
 class CustomStrategyIn(BaseModel):
     name:str=Field(min_length=3,max_length=60)
     symbol:Literal["XAUUSD","BTCUSD","BOTH"]="BOTH"
@@ -180,7 +181,7 @@ def account_snapshot(user_id:str):
         return {"balance":round(a.balance,2),"equity":round(a.balance+floating,2),
             "realized_pnl":round(a.realized_pnl,2),"unrealized_pnl":round(floating,2),
             "positions":positions,"history":history,"auto":a.auto_enabled,
-            "active_strategy":a.active_strategy,"risk_pct":a.risk_pct}
+            "active_strategy":a.active_strategy,"active_timeframe":a.active_timeframe,"risk_pct":a.risk_pct}
 
 def get_strategy_items(user_id:str):
     with SessionLocal() as db:
@@ -247,7 +248,7 @@ def evaluate_auto(symbol:str):
         for account in accounts:
             series=aggregate_candles(candles[symbol],account.active_timeframe or "1m")
             if len(series)<55:continue
-            bar_time=int(series[-1]["time"]);bar_key=(account.user_id,symbol)
+            bar_time=int(series[-1]["time"]);bar_key=(account.user_id,symbol,account.active_timeframe or "1m")
             if last_auto_bar.get(bar_key)==bar_time:continue
             last_auto_bar[bar_key]=bar_time
             if db.scalar(select(UserPosition.id).where(UserPosition.user_id==account.user_id,UserPosition.symbol==symbol)) is not None:continue
@@ -513,7 +514,9 @@ def auto(req:AutoIn,user=Depends(current_user)):
             raise HTTPException(503,"No live market feed is ready. Connect at least one supported feed before enabling auto trading.")
     with SessionLocal() as db:
         a=db_account(db,user["id"]);a.auto_enabled=req.enabled;a.risk_pct=req.risk_pct
-        if req.enabled:a.active_strategy=req.strategy_id or "STR-001"
+        if req.enabled:
+            a.active_strategy=req.strategy_id or "STR-001"
+            a.active_timeframe=req.timeframe
         db.commit()
     return account_snapshot(user["id"])
 

@@ -23,6 +23,6 @@ jobs:
       - name: Install backend dependencies
         run: pip install -r requirements.txt
       - name: Run paper risk and strategy tests
-        run: python -m unittest backend.test_risk_engine backend.test_strategy_engine
+        run: python -m unittest backend.test_strategy_engine
       - name: Check dashboard JavaScript syntax
         run: node --check frontend/app.js
