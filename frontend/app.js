@@ -1,6 +1,6 @@
 const API = location.origin;
 let symbol = "XAUUSD", timeframe = "1m", chart, candleSeries, candles = [], strategies = [], riskLines = [], overlayLines = [];
-let ws=null, reconnectDelay=1000, lastAccountPaint=0, botRunning=false, activeStrategyId="STR-001", chartBarSpacing=8;
+let latestQuotes={}, ws=null, reconnectDelay=1000, lastAccountPaint=0, botRunning=false, activeStrategyId="STR-001", chartBarSpacing=8;
 const $ = id => document.getElementById(id);
 const CONTRACT_SIZE = {XAUUSD:100, BTCUSD:1};
 const money = n => (n < 0 ? "-$" : "$") + Math.abs(Number(n || 0)).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -68,8 +68,9 @@ function paintAccount(account,quotes){
  $("autoBtn").disabled=account.auto;$("stopBtn").disabled=!account.auto;
  renderPositions(account.positions,quotes);renderHistory(account.history);
  $("positionCount").textContent=account.positions.length;$("historyCount").textContent=account.history.length;
+ if(account.funded){const f=account.funded;const el=$("fundedStatus");if(el){el.textContent=f.status+" · Daily loss remaining "+money(f.daily_loss_remaining)+" · Overall loss remaining "+money(f.overall_loss_remaining)+" · Profit target remaining "+money(f.profit_remaining);el.className="fundedstatus "+(f.status==="ACTIVE"?"good":"bad");}}
 }
-async function refresh(){const [account,quotes]=await Promise.all([api("/api/account"),api("/api/quotes")]);paintAccount(account,quotes);return {account,quotes};}
+async function refresh(){const [account,quotes]=await Promise.all([api("/api/account"),api("/api/quotes")]);latestQuotes={...latestQuotes,...quotes};paintAccount(account,latestQuotes);return {account,quotes};}
 function escapeHtml(value){return String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
 function renderStrategies(){
  const q=$("strategySearch").value.toLowerCase(),list=strategies.filter(s=>(s.name+" "+s.category).toLowerCase().includes(q));
@@ -96,10 +97,11 @@ function connectMarketSocket(){
  ws.onmessage=event=>{
   let message;try{message=JSON.parse(event.data);}catch{return;}
   const quotes=message.quotes||{};
-  if(quotes[symbol])updateChart(quotes[symbol]);
+  latestQuotes={...latestQuotes,...quotes};
+  if(latestQuotes[symbol])updateChart(latestQuotes[symbol]);
   if(message.account){
    const now=Date.now();
-   if(now-lastAccountPaint>1000){paintAccount(message.account,quotes);lastAccountPaint=now;}
+   if(now-lastAccountPaint>1000){paintAccount(message.account,latestQuotes);lastAccountPaint=now;}
   }
   if(message.feeds){$("btcFeed").textContent="BTCUSD · "+(message.feeds.BTCUSD||"unknown").toUpperCase();$("xauFeed").textContent="XAUUSD · "+(message.feeds.XAUUSD||"unknown").toUpperCase();}
  };
