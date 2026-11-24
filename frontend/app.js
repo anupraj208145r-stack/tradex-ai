@@ -76,10 +76,14 @@ function renderStrategies(){
 }
 async function loadStrategies(selected){strategies=await api("/api/strategies");const runnable=strategies.filter(s=>s.executable);$("autoStrategy").innerHTML=runnable.map(s=>'<option value="'+escapeHtml(s.id)+'">'+escapeHtml(s.name)+'</option>').join("");if(selected&&runnable.some(s=>s.id===selected))$("autoStrategy").value=selected;renderStrategies();}
 async function refreshFeeds(){
- try{const health=await api("/api/health");const label=s=>health.live_ready?.[s]?"LIVE":health.feeds[s]==="missing_credentials"?"API KEY REQUIRED":health.feeds[s]==="connected"?"STALE · WAITING FOR TICK":health.feeds[s].toUpperCase();
- $("xauFeed").textContent="XAUUSD · "+label("XAUUSD");$("btcFeed").textContent="BTCUSD · "+label("BTCUSD");
- const live=Object.values(health.live_ready||{}).every(Boolean);$("feedStatus").textContent=live?"LIVE MARKET DATA":"LIVE FEEDS NOT READY";$("feedStatus").classList.toggle("live",live);
- }catch(error){$("feedStatus").textContent="FEED STATUS UNAVAILABLE";}
+ try{
+  const response=await fetch(API+"/api/health",{cache:"no-store"});
+  if(!response.ok)throw new Error("Health endpoint returned "+response.status);
+  const health=await response.json();
+  const label=s=>health.live_ready?.[s]?"LIVE":health.feeds?.[s]==="missing_credentials"?"API KEY REQUIRED":(health.feeds?.[s]||"unknown").toUpperCase();
+  $("xauFeed").textContent="XAUUSD · "+label("XAUUSD");$("btcFeed").textContent="BTCUSD · "+label("BTCUSD");
+  const live=Object.values(health.live_ready||{}).every(Boolean);$("feedStatus").textContent=live?"LIVE MARKET DATA":"LIVE FEEDS NOT READY";$("feedStatus").classList.toggle("live",live);
+ }catch(error){$("feedStatus").textContent="FEED STATUS UNAVAILABLE";$("xauFeed").textContent="XAUUSD · STATUS UNAVAILABLE";$("btcFeed").textContent="BTCUSD · STATUS UNAVAILABLE";}
 }
 function connectMarketSocket(){
  if(ws&&ws.readyState<=1)return;
@@ -131,5 +135,21 @@ function showView(name){
 }
 document.querySelectorAll("[data-view]").forEach(link=>link.addEventListener("click",event=>{event.preventDefault();showView(link.dataset.view);}));
 window.addEventListener("hashchange",()=>showView(location.hash.slice(1)));
-async function boot(){showView(location.hash.slice(1)||"trading");await window.authReady;if(!await window.getTradeXAccessToken?.())return;initChart();const initial=await refresh();await loadStrategies(initial.account.active_strategy);await loadCandles().catch(()=>{});await refreshFeeds();connectMarketSocket();setInterval(refreshFeeds,30000);}
+async function boot(){
+ showView(location.hash.slice(1)||"trading");
+ await window.authReady;
+ if(!await window.getTradeXAccessToken?.())return;
+ initChart();
+ await refreshFeeds();
+ connectMarketSocket();
+ setInterval(refreshFeeds,15000);
+ try{
+  const initial=await refresh();
+  await loadStrategies(initial.account.active_strategy);
+ }catch(error){
+  console.error("Account bootstrap failed:",error);
+  toast("Market data is loading; account data needs diagnosis: "+error.message);
+ }
+ try{await loadCandles();}catch(error){console.error("Candle load failed:",error);$("chartCaption").textContent="Historical candles unavailable · checking live feed";}
+}
 boot().catch(error=>toast(error.message));
