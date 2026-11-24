@@ -171,16 +171,20 @@ class SupportTicket(Base):
     created_at: Mapped[int] = mapped_column(BigInteger, index=True)
     updated_at: Mapped[int] = mapped_column(BigInteger)
 
-def init_db():
-    Base.metadata.create_all(bind=engine)
-    # Add timeframe preference to both legacy and per-user account tables.
-    # create_all() does not add columns to tables that already exist.
-    inspector=inspect(engine)
-    with engine.begin() as conn:
+def apply_compatibility_migrations(target_engine=engine):
+    """Apply additive migrations for databases created by older TradeX releases.
+
+    SQLAlchemy create_all() creates missing tables but never adds new columns to
+    existing tables. Keep these migrations additive so existing trading records
+    and account balances are preserved.
+    """
+    inspector=inspect(target_engine)
+    table_names=set(inspector.get_table_names())
+    with target_engine.begin() as conn:
         for table_name in ("paper_accounts", "user_paper_accounts"):
-            if table_name not in inspector.get_table_names():
+            if table_name not in table_names:
                 continue
-            columns={column["name"] for column in inspector.get_columns(table_name)}
+            columns={column["name"] for column in inspect(target_engine).get_columns(table_name)}
             if "active_timeframe" not in columns:
                 conn.exec_driver_sql(
                     f"ALTER TABLE {table_name} ADD COLUMN active_timeframe VARCHAR(8) NOT NULL DEFAULT '1m'"
@@ -190,6 +194,20 @@ def init_db():
                 conn.exec_driver_sql(
                     "ALTER TABLE user_paper_accounts ADD COLUMN legacy_migrated BOOLEAN NOT NULL DEFAULT FALSE"
                 )
+        # Added by the funded-style challenge monitor. Existing PostgreSQL
+        # installations predate this column, and /api/account + /api/auto both
+        # query the full ORM model, so a missing column causes HTTP 500.
+        if "user_risk_states" in table_names:
+            columns={column["name"] for column in inspect(target_engine).get_columns("user_risk_states")}
+            if "peak_equity" not in columns:
+                conn.exec_driver_sql(
+                    "ALTER TABLE user_risk_states ADD COLUMN peak_equity FLOAT NOT NULL DEFAULT 0.0"
+                )
+
+
+def init_db():
+    Base.metadata.create_all(bind=engine)
+    apply_compatibility_migrations(engine)
     with SessionLocal() as db:
         if db.get(PaperAccount, 1) is None:
             db.add(PaperAccount(id=1))
