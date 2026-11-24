@@ -38,7 +38,7 @@ def test_candle_sanitizer_deduplicates_and_sorts_valid_rows():
     assert clean[-1]["close"] == 3559
 
 
-def test_existing_risk_state_table_gets_peak_equity_without_losing_rows():
+def test_existing_risk_state_table_gets_all_missing_risk_columns_without_losing_rows():
     engine = create_engine("sqlite:///:memory:")
     try:
         with engine.begin() as conn:
@@ -57,16 +57,24 @@ def test_existing_risk_state_table_gets_peak_equity_without_losing_rows():
         apply_compatibility_migrations(engine)
 
         columns = {column["name"] for column in inspect(engine).get_columns("user_risk_states")}
-        assert "peak_equity" in columns
+        assert {
+            "day_key", "day_start_equity", "peak_equity", "daily_locked",
+            "overall_failed", "challenge_passed", "lock_reason", "updated_at",
+        }.issubset(columns)
         with engine.connect() as conn:
             row = conn.execute(text("""
-                SELECT user_id, day_key, day_start_equity, peak_equity
+                SELECT user_id, day_key, day_start_equity, peak_equity, daily_locked, overall_failed, challenge_passed, lock_reason, updated_at
                 FROM user_risk_states WHERE user_id='user-1'
             """)).one()
         assert row.user_id == "user-1"
         assert row.day_key == "2026-11-25"
         assert row.day_start_equity == 1000.0
-        assert row.peak_equity == 0.0
+        assert row.peak_equity == 1000.0
+        assert row.daily_locked == 0
+        assert row.overall_failed == 0
+        assert row.challenge_passed == 0
+        assert row.lock_reason == ""
+        assert row.updated_at == 0
 
         # Re-running startup migrations must be safe and idempotent.
         apply_compatibility_migrations(engine)
