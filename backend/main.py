@@ -93,11 +93,9 @@ def feed_is_fresh(symbol:str,max_age_seconds:int=60)->bool:
 
 def db_account(db,user_id:str):
     account=db.get(UserPaperAccount,user_id)
+    legacy=db.get(PaperAccount,1)
     if account is None:
-        # One-time compatibility migration: preserve the original single-user
-        # paper account when moving to authenticated per-user storage.
         any_user_account=db.scalar(select(UserPaperAccount.user_id).limit(1))
-        legacy=db.get(PaperAccount,1)
         if any_user_account is None and legacy is not None:
             account=UserPaperAccount(user_id=user_id,starting_balance=legacy.starting_balance,
                 balance=legacy.balance,realized_pnl=legacy.realized_pnl,auto_enabled=False,
@@ -105,18 +103,62 @@ def db_account(db,user_id:str):
                 risk_pct=legacy.risk_pct,updated_at=legacy.updated_at)
             db.add(account)
             for old in db.scalars(select(Position)).all():
-                db.add(UserPosition(id=old.id,user_id=user_id,symbol=old.symbol,side=old.side,
-                    quantity=old.quantity,entry=old.entry,stop_loss=old.stop_loss,
-                    take_profit=old.take_profit,opened_at=old.opened_at,source=old.source))
+                if db.get(UserPosition,old.id) is None:
+                    db.add(UserPosition(id=old.id,user_id=user_id,symbol=old.symbol,side=old.side,
+                        quantity=old.quantity,entry=old.entry,stop_loss=old.stop_loss,
+                        take_profit=old.take_profit,opened_at=old.opened_at,source=old.source))
             for old in db.scalars(select(Trade).order_by(Trade.closed_at)).all():
-                db.add(UserTrade(user_id=user_id,position_id=old.position_id,symbol=old.symbol,
-                    side=old.side,quantity=old.quantity,entry=old.entry,exit=old.exit,pnl=old.pnl,
-                    reason=old.reason,opened_at=old.opened_at,closed_at=old.closed_at))
+                exists=db.scalar(select(UserTrade.id).where(
+                    UserTrade.user_id==user_id,UserTrade.position_id==old.position_id,
+                    UserTrade.closed_at==old.closed_at).limit(1))
+                if not exists:
+                    db.add(UserTrade(user_id=user_id,position_id=old.position_id,symbol=old.symbol,
+                        side=old.side,quantity=old.quantity,entry=old.entry,exit=old.exit,pnl=old.pnl,
+                        reason=old.reason,opened_at=old.opened_at,closed_at=old.closed_at))
         else:
             account=UserPaperAccount(user_id=user_id,starting_balance=10000,balance=10000,realized_pnl=0,
                                      auto_enabled=False,active_strategy="STR-001",risk_pct=1)
             db.add(account)
         db.commit();db.refresh(account)
+    else:
+        # Recover the legacy single-user account only when this is the sole
+        # per-user account and the current account is still untouched default.
+        # Never overwrite an account that already contains user activity.
+        user_count=db.query(func.count(UserPaperAccount.user_id)).scalar() or 0
+        current_positions=db.scalar(select(UserPosition.id).where(UserPosition.user_id==user_id).limit(1))
+        current_trades=db.scalar(select(UserTrade.id).where(UserTrade.user_id==user_id).limit(1))
+        legacy_positions=db.scalar(select(Position.id).limit(1))
+        legacy_trades=db.scalar(select(Trade.id).limit(1))
+        untouched=(abs(float(account.balance)-10000)<0.005 and
+                   abs(float(account.starting_balance)-10000)<0.005 and
+                   abs(float(account.realized_pnl))<0.005 and
+                   current_positions is None and current_trades is None)
+        legacy_has_data=bool(legacy and (
+            abs(float(legacy.balance)-float(legacy.starting_balance))>=0.005 or
+            abs(float(legacy.realized_pnl))>=0.005 or legacy_positions or legacy_trades))
+        if user_count==1 and untouched and legacy_has_data:
+            account.starting_balance=legacy.starting_balance
+            account.balance=legacy.balance
+            account.realized_pnl=legacy.realized_pnl
+            account.active_strategy=legacy.active_strategy
+            account.active_timeframe=legacy.active_timeframe
+            account.risk_pct=legacy.risk_pct
+            account.auto_enabled=False
+            account.updated_at=legacy.updated_at
+            for old in db.scalars(select(Position)).all():
+                if db.get(UserPosition,old.id) is None:
+                    db.add(UserPosition(id=old.id,user_id=user_id,symbol=old.symbol,side=old.side,
+                        quantity=old.quantity,entry=old.entry,stop_loss=old.stop_loss,
+                        take_profit=old.take_profit,opened_at=old.opened_at,source=old.source))
+            for old in db.scalars(select(Trade).order_by(Trade.closed_at)).all():
+                exists=db.scalar(select(UserTrade.id).where(
+                    UserTrade.user_id==user_id,UserTrade.position_id==old.position_id,
+                    UserTrade.closed_at==old.closed_at).limit(1))
+                if not exists:
+                    db.add(UserTrade(user_id=user_id,position_id=old.position_id,symbol=old.symbol,
+                        side=old.side,quantity=old.quantity,entry=old.entry,exit=old.exit,pnl=old.pnl,
+                        reason=old.reason,opened_at=old.opened_at,closed_at=old.closed_at))
+            db.commit();db.refresh(account)
     return account
 
 def position_dict(p):
