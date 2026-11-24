@@ -70,9 +70,9 @@ def test_existing_risk_state_table_gets_all_missing_risk_columns_without_losing_
         assert row.day_key == "2026-11-25"
         assert row.day_start_equity == 1000.0
         assert row.peak_equity == 1000.0
-        assert row.daily_locked is False
-        assert row.overall_failed is False
-        assert row.challenge_passed is False
+        assert row.daily_locked == 0
+        assert row.overall_failed == 0
+        assert row.challenge_passed == 0
         assert row.lock_reason == ""
         assert row.updated_at == 0
 
