@@ -202,3 +202,18 @@ This branch adds Supabase Auth in the browser and verifies every protected API b
 - Phone OTP password setup requires the user to enter a password in the Password field before completing OTP verification. Password reset for email uses Supabase's recovery email flow; phone password reset uses a fresh SMS OTP and then updates the password.
 - Configure Supabase email confirmation and SMS rate limits to reduce account abuse. Enable CAPTCHA/Turnstile in Supabase Auth if your plan and provider support it.
 - This app uses its own Railway/Postgres database for paper-trading records; Supabase Auth is the identity provider. Supabase database RLS policies do not apply to the separate Railway database. Isolation is enforced by verified server identity and user-scoped SQL queries.
+
+
+## Admin user management
+
+The restricted admin area uses the same Supabase sign-in as the normal app; it does not create a separate admin password.
+
+Configure these variables on the backend app service (for example, Railway):
+
+- `ADMIN_EMAILS`: comma-separated email addresses allowed to open `/admin/users` and `/admin/support`. Add the exact email address used by the admin's Supabase account.
+- `SUPABASE_SERVICE_ROLE_KEY`: Supabase project's server-only service-role key (or the supported server secret key). This is required only for listing users and sending individual admin emails. Keep it exclusively in backend environment variables; never put it in frontend code, GitHub, or a public variable.
+- `RESEND_API_KEY` and `RESEND_FROM_EMAIL`: required for sending user emails through the existing Resend integration.
+
+The admin must first register/sign in through the normal TradeX AI login. Then set `ADMIN_EMAILS` to that account's email and redeploy/restart the backend. Visit `/admin/users` to browse paginated user records and contact a user by email. `/admin/support` remains available for support tickets. The dashboard displays account UUID, email/phone, registration time and last sign-in time only; it never displays passwords or session tokens. Only contact users for relevant support or product communications and honor applicable consent and unsubscribe requirements.
+
+To obtain the server-only Supabase key, open the Supabase project dashboard and look under Project Settings / API Keys. Do not share the key in chat or commit it to the repository.
