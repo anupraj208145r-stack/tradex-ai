@@ -91,6 +91,11 @@ async def gold_stream(on_tick: TickCallback):
                 try:
                     async for raw in ws:
                         message=json.loads(raw)
+                        if message.get("event")=="subscribe-status":
+                            failures=message.get("fails") or []
+                            if message.get("status")!="ok" or failures:
+                                raise RuntimeError("Twelve Data subscription rejected: "+json.dumps(failures)[:180])
+                            STATUS["XAUUSD"]="subscribed_waiting_ticks"
                         if message.get("event")=="price" and message.get("symbol") in ("XAU/USD","XAUUSD"):
                             await on_tick("XAUUSD",float(message["price"]),
                                 int(message.get("timestamp") or time.time()),"twelvedata")
