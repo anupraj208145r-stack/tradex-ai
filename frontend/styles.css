@@ -60,3 +60,57 @@
 }
 #chartCaption{display:block;padding:10px 3px 0;color:#8993aa;letter-spacing:.25px}
 @media(max-width:680px){#chart{height:310px;min-height:300px}}
+
+
+/* Responsive terminal navigation and dedicated dashboard views */
+.app{grid-template-columns:220px minmax(0,1fr)}
+.sidebar{z-index:20}
+.appnav{display:grid;gap:7px}
+.appnav a{display:flex;align-items:center;min-height:42px;padding:11px 12px;border:1px solid transparent;border-radius:9px;color:#9eabc2;text-decoration:none;font-size:12px;font-weight:650;transition:background .15s,border-color .15s,color .15s}
+.appnav a:hover{background:#17243a;color:#eef4ff}
+.appnav a.active{background:linear-gradient(100deg,#1b3150,#18263d);border-color:#355276;color:#fff;box-shadow:inset 3px 0 #78a0ff}
+.viewpage{display:none;animation:viewIn .16s ease-out}
+.viewpage.active{display:block}
+@keyframes viewIn{from{opacity:.65;transform:translateY(3px)}to{opacity:1;transform:none}}
+.pageintro{margin:5px 0 18px;padding:18px 20px;border:1px solid var(--line);border-radius:12px;background:linear-gradient(110deg,#14233a,#111a2d)}
+.pageintro small{color:#8fa9d3;letter-spacing:1.4px;font-weight:800;font-size:9px}
+.pageintro h2{font-size:22px;margin:7px 0}
+.pageintro p{margin:0;color:var(--muted);font-size:12px}
+#view-trading .topgrid{grid-template-columns:minmax(0,1.7fr) minmax(280px,.78fr);align-items:stretch}
+#view-trading #chart{height:clamp(360px,48vw,560px);min-height:340px}
+#view-trading .panel{box-shadow:0 8px 28px rgba(0,0,0,.12)}
+#view-strategies .bottomgrid{grid-template-columns:minmax(280px,.78fr) minmax(0,1.22fr)}
+#view-strategies .strategylist{max-height:min(58vh,620px)}
+#view-portfolio .metrics{grid-template-columns:repeat(4,minmax(0,1fr));margin-bottom:14px}
+#view-portfolio .tablepanel{margin-top:14px}
+#view-portfolio .metrics article{background:linear-gradient(145deg,#15223a,#111a2d)}
+#view-portfolio .metrics strong{font-variant-numeric:tabular-nums;letter-spacing:-.3px}
+@media(max-width:1050px){
+ .app{grid-template-columns:190px minmax(0,1fr)}
+ #view-trading .topgrid{grid-template-columns:1fr}
+ #view-strategies .bottomgrid{grid-template-columns:1fr}
+}
+@media(max-width:700px){
+ .app{display:flex;flex-direction:column}
+ .sidebar{position:sticky;top:0;height:auto;padding:10px 12px;border-right:0;border-bottom:1px solid var(--line);backdrop-filter:blur(16px);background:rgba(13,21,39,.96)}
+ .brand{margin:0 0 8px}
+ .paper{margin:0 0 8px;padding:7px 9px}
+ .feedpanel{display:none}
+ .appnav{display:flex;gap:6px;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;padding-bottom:2px}
+ .appnav::-webkit-scrollbar{display:none}
+ .appnav a{white-space:nowrap;flex:0 0 auto;min-height:36px;padding:8px 11px;font-size:11px}
+ .appnav a.active{box-shadow:inset 0 -2px #78a0ff}
+ main{padding:14px 11px}
+ header{gap:8px;align-items:flex-start}
+ header h1{font-size:20px}
+ #view-trading .topgrid{grid-template-columns:minmax(0,1fr);gap:10px}
+ #view-trading #chart{height:clamp(300px,76vw,430px);min-height:280px}
+ #view-portfolio .metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+ #view-strategies .bottomgrid{grid-template-columns:minmax(0,1fr)}
+ .pageintro{padding:14px}
+ .pageintro h2{font-size:19px}
+ .tablewrap{max-width:100%;-webkit-overflow-scrolling:touch}
+ .headeractions{gap:5px}
+ .headeractions button{padding:8px;font-size:9px}
+}
+@media(prefers-reduced-motion:reduce){.viewpage{animation:none}*{scroll-behavior:auto!important;transition:none!important}}
