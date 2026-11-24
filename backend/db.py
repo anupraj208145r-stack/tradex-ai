@@ -143,6 +143,19 @@ class UserCustomStrategy(Base):
     created_at: Mapped[int] = mapped_column(BigInteger)
 
 
+class UserRiskState(Base):
+    __tablename__ = "user_risk_states"
+    user_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    day_key: Mapped[str] = mapped_column(String(10))
+    day_start_equity: Mapped[float] = mapped_column(Float, default=1000.0)
+    peak_equity: Mapped[float] = mapped_column(Float, default=1000.0)
+    daily_locked: Mapped[bool] = mapped_column(Boolean, default=False)
+    overall_failed: Mapped[bool] = mapped_column(Boolean, default=False)
+    challenge_passed: Mapped[bool] = mapped_column(Boolean, default=False)
+    lock_reason: Mapped[str] = mapped_column(String(80), default="")
+    updated_at: Mapped[int] = mapped_column(BigInteger, default=0)
+
+
 class SupportTicket(Base):
     __tablename__ = "support_tickets"
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
