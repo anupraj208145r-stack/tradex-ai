@@ -346,6 +346,10 @@ async def publish():
 
 async def on_tick(symbol:str,price:float,timestamp:int,source:str):
     if price<=0:return
+    # Normalize provider timestamps (seconds vs milliseconds and stale clocks).
+    now=int(time.time())
+    if timestamp>10_000_000_000:timestamp=int(timestamp/1000)
+    if abs(int(timestamp)-now)>120:timestamp=now
     async with market_lock:
         prices[symbol]=price
         quotes_meta[symbol]={"symbol":symbol,"price":round(price,5),"time":timestamp,
