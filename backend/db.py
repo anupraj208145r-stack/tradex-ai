@@ -194,14 +194,33 @@ def apply_compatibility_migrations(target_engine=engine):
                 conn.exec_driver_sql(
                     "ALTER TABLE user_paper_accounts ADD COLUMN legacy_migrated BOOLEAN NOT NULL DEFAULT FALSE"
                 )
-        # Added by the funded-style challenge monitor. Existing PostgreSQL
-        # installations predate this column, and /api/account + /api/auto both
-        # query the full ORM model, so a missing column causes HTTP 500.
+        # Funded-style risk state was added after some production databases
+        # were created. ORM SELECTs include every mapped column, so migrate
+        # the complete model, not just the first missing column.
         if "user_risk_states" in table_names:
             columns={column["name"] for column in inspect(target_engine).get_columns("user_risk_states")}
-            if "peak_equity" not in columns:
+            risk_columns = {
+                "day_key": "VARCHAR(10) NOT NULL DEFAULT ''",
+                "day_start_equity": "FLOAT NOT NULL DEFAULT 1000.0",
+                "peak_equity": "FLOAT NOT NULL DEFAULT 0.0",
+                "daily_locked": "BOOLEAN NOT NULL DEFAULT FALSE",
+                "overall_failed": "BOOLEAN NOT NULL DEFAULT FALSE",
+                "challenge_passed": "BOOLEAN NOT NULL DEFAULT FALSE",
+                "lock_reason": "VARCHAR(80) NOT NULL DEFAULT ''",
+                "updated_at": "BIGINT NOT NULL DEFAULT 0",
+            }
+            added_peak_equity = "peak_equity" not in columns
+            for column_name, column_definition in risk_columns.items():
+                if column_name not in columns:
+                    conn.exec_driver_sql(
+                        f"ALTER TABLE user_risk_states ADD COLUMN {column_name} {column_definition}"
+                    )
+            # For pre-monitoring rows, preserve their recorded day-start
+            # equity as the initial peak rather than treating the peak as zero.
+            if added_peak_equity and "day_start_equity" in columns:
                 conn.exec_driver_sql(
-                    "ALTER TABLE user_risk_states ADD COLUMN peak_equity FLOAT NOT NULL DEFAULT 0.0"
+                    "UPDATE user_risk_states SET peak_equity = day_start_equity "
+                    "WHERE peak_equity = 0 AND day_start_equity > 0"
                 )
 
 
