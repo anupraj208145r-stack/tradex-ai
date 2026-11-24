@@ -20,6 +20,9 @@ from .strategy_engine import signal_for, SUPPORTED_STRATEGIES, atr_value
 BASE=Path(__file__).parent
 CATALOG=json.loads((BASE/"strategies.json").read_text())
 SYMBOLS=("XAUUSD","BTCUSD")
+CONTRACT_SIZE={"XAUUSD":100.0,"BTCUSD":1.0}
+MAX_POSITION_NOTIONAL_MULTIPLE=5.0
+MAX_RISK_PER_TRADE_PCT=0.5
 prices:dict[str,float]={}
 quotes_meta:dict[str,dict]={}
 candles:dict[str,list[dict]]={s:[] for s in SYMBOLS}
@@ -78,7 +81,7 @@ class ResetIn(BaseModel):
 class AutoIn(BaseModel):
     enabled:bool
     strategy_id:str|None=None
-    risk_pct:float=Field(default=1.0,gt=0,le=5)
+    risk_pct:float=Field(default=0.5,gt=0,le=0.5)
     timeframe:Literal["1m","5m","15m","30m","1h","4h","1d"]="1m"
 class CustomStrategyIn(BaseModel):
     name:str=Field(min_length=3,max_length=60)
@@ -117,7 +120,7 @@ def db_account(db,user_id:str):
                         side=old.side,quantity=old.quantity,entry=old.entry,exit=old.exit,pnl=old.pnl,
                         reason=old.reason,opened_at=old.opened_at,closed_at=old.closed_at))
         else:
-            account=UserPaperAccount(user_id=user_id,starting_balance=10000,balance=10000,realized_pnl=0,
+            account=UserPaperAccount(user_id=user_id,starting_balance=1000,balance=1000,realized_pnl=0,
                                      auto_enabled=False,active_strategy="STR-001",risk_pct=1)
             db.add(account)
         db.commit();db.refresh(account)
@@ -177,7 +180,7 @@ def account_snapshot(user_id:str):
         a=db_account(db,user_id)
         positions=[position_dict(p) for p in db.scalars(select(UserPosition).where(UserPosition.user_id==user_id)).all()]
         history=[trade_dict(t) for t in db.scalars(select(UserTrade).where(UserTrade.user_id==user_id).order_by(desc(UserTrade.closed_at)).limit(100)).all()]
-        floating=sum((prices.get(p["symbol"],p["entry"])-p["entry"])*p["quantity"]*(1 if p["side"]=="BUY" else -1) for p in positions)
+        floating=sum((prices.get(p["symbol"],p["entry"])-p["entry"])*p["quantity"]*CONTRACT_SIZE.get(p["symbol"],1.0)*(1 if p["side"]=="BUY" else -1) for p in positions)
         return {"balance":round(a.balance,2),"equity":round(a.balance+floating,2),
             "realized_pnl":round(a.realized_pnl,2),"unrealized_pnl":round(floating,2),
             "positions":positions,"history":history,"auto":a.auto_enabled,
@@ -215,7 +218,7 @@ def close_position(user_id:str,position_id:str,reason:str):
         p=db.scalar(select(UserPosition).where(UserPosition.id==position_id,UserPosition.user_id==user_id))
         if p is None:return
         exit_price=prices.get(p.symbol,p.entry)
-        pnl=(exit_price-p.entry)*p.quantity*(1 if p.side=="BUY" else -1)
+        pnl=(exit_price-p.entry)*p.quantity*CONTRACT_SIZE.get(p.symbol,1.0)*(1 if p.side=="BUY" else -1)
         a=db_account(db,user_id);a.balance+=pnl;a.realized_pnl+=pnl;a.updated_at=int(time.time())
         db.add(UserTrade(user_id=user_id,position_id=p.id,symbol=p.symbol,side=p.side,quantity=p.quantity,
             entry=p.entry,exit=exit_price,pnl=round(pnl,2),reason=reason,
@@ -272,9 +275,9 @@ def evaluate_auto(symbol:str):
             levels=adaptive_levels(symbol,side,entry,series)
             if levels is None:continue
             sl,tp=levels
-            risk_cash=max(account.balance,0)*account.risk_pct/100
-            qty=min(100.0,round(risk_cash/abs(entry-sl),6))
-            qty=min(qty,max(account.balance,0)*5/entry)
+            risk_cash=max(account.balance,0)*min(account.risk_pct,MAX_RISK_PER_TRADE_PCT)/100
+            qty=min(100.0,round(risk_cash/(abs(entry-sl)*CONTRACT_SIZE[symbol]),6))
+            qty=min(qty,max(account.balance,0)*MAX_POSITION_NOTIONAL_MULTIPLE/(entry*CONTRACT_SIZE[symbol]))
             if qty<0.001:continue
             db.add(UserPosition(id=uuid.uuid4().hex,user_id=account.user_id,symbol=symbol,side=side,quantity=qty,
                 entry=entry,stop_loss=sl,take_profit=tp,opened_at=int(time.time()),source="auto"))
@@ -478,7 +481,7 @@ def order(req:OrderIn,user=Depends(current_user)):
     if req.symbol not in prices or not feed_is_fresh(req.symbol):raise HTTPException(503,"No fresh live market price available yet for this symbol")
     with SessionLocal() as db:
         a=db_account(db,user["id"])
-        if req.quantity*prices[req.symbol]>max(a.balance,0)*5:
+        if req.quantity*prices[req.symbol]*CONTRACT_SIZE[req.symbol]>max(a.balance,0)*MAX_POSITION_NOTIONAL_MULTIPLE:
             raise HTTPException(400,"Paper order notional exceeds 5x account balance")
         entry=prices[req.symbol]
         sl,tp=req.stop_loss,req.take_profit
@@ -489,6 +492,9 @@ def order(req:OrderIn,user=Depends(current_user)):
             if tp is None:tp=levels[1]
         if sl is not None and ((req.side=="BUY" and sl>=entry) or (req.side=="SELL" and sl<=entry)):raise HTTPException(status_code=422,detail="Stop loss must be below entry for BUY and above entry for SELL")
         if tp is not None and ((req.side=="BUY" and tp<=entry) or (req.side=="SELL" and tp>=entry)):raise HTTPException(status_code=422,detail="Take profit must be above entry for BUY and below entry for SELL")
+        risk_amount=abs(entry-float(sl))*req.quantity*CONTRACT_SIZE[req.symbol]
+        risk_limit=max(a.balance,0)*MAX_RISK_PER_TRADE_PCT/100
+        if risk_amount>risk_limit+0.01:raise HTTPException(status_code=400,detail=f"Funded-account risk limit exceeded: max risk is ${risk_limit:.2f} (0.5% of balance)")
         p=UserPosition(id=uuid.uuid4().hex,user_id=user["id"],symbol=req.symbol,side=req.side,quantity=req.quantity,
             entry=entry,stop_loss=sl,take_profit=tp,opened_at=int(time.time()),source="manual")
         db.add(p);db.commit()
