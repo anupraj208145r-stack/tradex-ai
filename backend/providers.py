@@ -52,7 +52,7 @@ async def coinbase_stream(on_tick: TickCallback):
             async with websockets.connect("wss://advanced-trade-ws.coinbase.com",
                     ping_interval=20,ping_timeout=20,close_timeout=5) as ws:
                 await ws.send(json.dumps({"type":"subscribe","product_ids":["BTC-USD"],"channel":"ticker"}))
-                STATUS["BTCUSD"]="connected"; LAST_ERROR["BTCUSD"]=None; delay=1
+                STATUS["BTCUSD"]="awaiting_ticks"; LAST_ERROR["BTCUSD"]=None; delay=1
                 async for raw in ws:
                     message=json.loads(raw)
                     for event in message.get("events",[]):
@@ -82,7 +82,7 @@ async def gold_stream(on_tick: TickCallback):
                         await asyncio.sleep(10)
                         await ws.send(json.dumps({"action":"heartbeat"}))
                 heartbeat_task=asyncio.create_task(heartbeat())
-                STATUS["XAUUSD"]="connected"; LAST_ERROR["XAUUSD"]=None; delay=1
+                STATUS["XAUUSD"]="awaiting_ticks"; LAST_ERROR["XAUUSD"]=None; delay=1
                 try:
                     async for raw in ws:
                         message=json.loads(raw)
@@ -97,5 +97,5 @@ async def gold_stream(on_tick: TickCallback):
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            STATUS["XAUUSD"]="reconnecting"; LAST_ERROR["XAUUSD"]=str(exc)[:240]
+            STATUS["XAUUSD"]="reconnecting"; LAST_ERROR["XAUUSD"]=safe_error(exc)
             await asyncio.sleep(delay+random.random()); delay=min(delay*2,30)
