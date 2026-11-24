@@ -1,22 +1,24 @@
 const API = location.origin;
 let symbol = "XAUUSD", timeframe = "1m", chart, candleSeries, candles = [], strategies = [], riskLines = [], overlayLines = [];
-let ws=null, reconnectDelay=1000, lastAccountPaint=0, botRunning=false, activeStrategyId="STR-001", chartZones={fvg:[],order_blocks:[]}, overlayCanvas=null, overlayCtx=null, chartBarSpacing=8;
+let ws=null, reconnectDelay=1000, lastAccountPaint=0, botRunning=false, activeStrategyId="STR-001", chartBarSpacing=8;
 const $ = id => document.getElementById(id);
 const money = n => (n < 0 ? "-$" : "$") + Math.abs(Number(n || 0)).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 function toast(message){const el=$("toast");el.textContent=message;el.classList.add("show");setTimeout(()=>el.classList.remove("show"),2300);}
 async function api(path, options={}){const token=await window.getTradeXAccessToken?.();if(!token)throw new Error("Please sign in again.");const response=await fetch(API+path,{...options,headers:{"Content-Type":"application/json",...(options.headers||{}),"Authorization":"Bearer "+token}});const data=await response.json();if(!response.ok)throw new Error(data.detail||"Request failed");return data;}
 function initChart(){
  const el=$("chart");
- const getSize=()=>({width:Math.max(280,Math.floor(el.getBoundingClientRect().width)),height:Math.max(240,Math.min(430,Math.floor(el.getBoundingClientRect().height||295)))});
- chart=LightweightCharts.createChart(el,{...getSize(),autoSize:true,layout:{background:{type:"solid",color:"#19131f"},textColor:"#b8b2c4",fontFamily:"Inter, system-ui, sans-serif",fontSize:11},grid:{vertLines:{color:"#302333",style:1},horzLines:{color:"#302333",style:1}},rightPriceScale:{borderColor:"#493344",minimumWidth:64,scaleMargins:{top:.08,bottom:.08}},timeScale:{borderColor:"#493344",timeVisible:true,secondsVisible:false,rightOffset:6,barSpacing:chartBarSpacing,borderVisible:true},crosshair:{mode:1,vertLine:{color:"#b56b83",width:1,style:2,labelBackgroundColor:"#71364d"},horzLine:{color:"#b56b83",width:1,style:2,labelBackgroundColor:"#71364d"}},handleScroll:{mouseWheel:true,pressedMouseMove:true},handleScale:{mouseWheel:true,pinch:true},localization:{locale:"en-US"}});
+ chart=LightweightCharts.createChart(el,{
+  autoSize:true,
+  layout:{background:{type:"solid",color:"#19131f"},textColor:"#b8b2c4",fontFamily:"Inter, system-ui, sans-serif",fontSize:11},
+  grid:{vertLines:{color:"#302333",style:1},horzLines:{color:"#302333",style:1}},
+  rightPriceScale:{borderColor:"#493344",minimumWidth:64,scaleMargins:{top:.08,bottom:.08}},
+  timeScale:{borderColor:"#493344",timeVisible:true,secondsVisible:false,rightOffset:6,barSpacing:chartBarSpacing,borderVisible:true},
+  crosshair:{mode:1,vertLine:{color:"#b56b83",width:1,style:2,labelBackgroundColor:"#71364d"},horzLine:{color:"#b56b83",width:1,style:2,labelBackgroundColor:"#71364d"}},
+  handleScroll:{mouseWheel:true,pressedMouseMove:true},
+  handleScale:{mouseWheel:true,pinch:true},
+  localization:{locale:"en-US"}
+ });
  candleSeries=chart.addCandlestickSeries({upColor:"#36d6b0",downColor:"#ff637d",borderUpColor:"#55e6c0",borderDownColor:"#ff8295",wickUpColor:"#55e6c0",wickDownColor:"#ff8295",priceLineColor:"#e2a0b2",priceLineWidth:1,priceLineStyle:2,priceLineVisible:true,lastValueVisible:true});
- overlayCanvas=document.createElement("canvas");overlayCanvas.className="chart-overlay";el.appendChild(overlayCanvas);overlayCtx=overlayCanvas.getContext("2d");
- const drawZones=()=>{if(!overlayCtx)return;const w=el.clientWidth,h=el.clientHeight,dpr=window.devicePixelRatio||1;overlayCanvas.width=w*dpr;overlayCanvas.height=h*dpr;overlayCanvas.style.width=w+"px";overlayCanvas.style.height=h+"px";overlayCtx.setTransform(dpr,0,0,dpr,0,0);overlayCtx.clearRect(0,0,w,h);const zones=[];if($("showFvg").checked)zones.push(...chartZones.fvg);if($("showOb").checked)zones.push(...chartZones.order_blocks);for(const z of zones){const topY=candleSeries.priceToCoordinate(Number(z.high)),botY=candleSeries.priceToCoordinate(Number(z.low));if(topY===null||botY===null)continue;const x0=chart.timeScale().timeToCoordinate(Number(z.time));const x=x0===null?0:Math.max(0,x0),top=Math.min(topY,botY),height=Math.max(2,Math.abs(botY-topY));if(x>=w)continue;const bull=z.type==="bullish",fvg=z.kind==="fvg";overlayCtx.fillStyle=fvg?(bull?"rgba(31,205,160,.24)":"rgba(255,77,111,.23)"):(bull?"rgba(73,145,255,.25)":"rgba(255,177,71,.24)");overlayCtx.strokeStyle=fvg?(bull?"#35e0b2":"#ff617f"):(bull?"#68a7ff":"#ffc16b");overlayCtx.lineWidth=1.2;overlayCtx.setLineDash(fvg?[5,4]:[3,3]);overlayCtx.fillRect(x,top,w-x,height);overlayCtx.strokeRect(x,top,w-x,height);overlayCtx.setLineDash([]);const tag=(fvg?"FVG":"ORDER BLOCK")+" · "+(bull?"BULLISH":"BEARISH");overlayCtx.font="600 9px Inter, sans-serif";const tw=overlayCtx.measureText(tag).width+12;overlayCtx.fillStyle=fvg?(bull?"rgba(15,105,83,.94)":"rgba(132,37,61,.94)"):(bull?"rgba(31,72,132,.94)":"rgba(132,83,28,.94)");overlayCtx.fillRect(x+3,Math.max(2,top+3),tw,17);overlayCtx.fillStyle="#fff";overlayCtx.fillText(tag,x+9,Math.max(14,top+15));}};
- window.drawTradeXZones=drawZones;chart.subscribeVisibleLogicalRangeChange(drawZones);chart.timeScale().subscribeVisibleTimeRangeChange(drawZones);
- let resizeFrame=0;
- const observer=new ResizeObserver(()=>{cancelAnimationFrame(resizeFrame);resizeFrame=requestAnimationFrame(()=>{const size=getSize();chart.applyOptions(size);drawZones();});});
- observer.observe(el);
- window.addEventListener("beforeunload",()=>observer.disconnect(),{once:true});
 }
 async function loadCandles(){
  const rows=await api("/api/candles/"+symbol+"?timeframe="+timeframe);
@@ -30,11 +32,9 @@ async function loadCandles(){
   chart.timeScale().fitContent();
   $("lastPrice").textContent=Number(candles[candles.length-1].close).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
  }
- await loadAnalysis();
+
  $("chartCaption").textContent=timeframe+" candles · both market scanners operate independently · paper only";
 }
-async function loadAnalysis(){try{const data=await api("/api/analysis/"+symbol+"?timeframe="+timeframe);chartZones={fvg:(data.fvg||[]).map(z=>({...z,kind:"fvg"})),order_blocks:(data.order_blocks||[]).map(z=>({...z,kind:"ob"}))};}catch(e){console.warn(e);chartZones={fvg:[],order_blocks:[]};}if(overlayCanvas){const w=$("chart").clientWidth,h=$("chart").clientHeight,dpr=window.devicePixelRatio||1;overlayCanvas.width=w*dpr;overlayCanvas.height=h*dpr;overlayCtx.clearRect(0,0,w,h);window.drawTradeXZones?.();chart.timeScale().scrollToRealTime();}}
-
 function updateChart(quote){
  if(!quote||!Number.isFinite(Number(quote.price))||!Number.isFinite(Number(quote.time)))return;
  const price=Number(quote.price), step=({"1m":60,"5m":300,"15m":900,"30m":1800,"1h":3600,"4h":14400,"1d":86400})[timeframe], minute=Math.floor(Number(quote.time)/step)*step;
@@ -44,6 +44,7 @@ function updateChart(quote){
  else if(minute===last.time){last.high=Math.max(last.high,price);last.low=Math.min(last.low,price);last.close=price;candleSeries.update(last);}
  else {const c={time:minute,open:price,high:price,low:price,close:price};candles.push(c);if(candles.length>1000)candles.shift();candleSeries.update(c);}
  $("lastPrice").textContent=price.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
+ 
 }
 function renderPositions(positions,quotes){
  $("positionsBody").innerHTML=positions.length?positions.map(p=>{const mark=quotes[p.symbol]?.price??p.entry;const pnl=(mark-p.entry)*p.quantity*(p.side==="BUY"?1:-1);return '<tr><td><b>'+escapeHtml(p.symbol)+'</b></td><td class="'+(p.side==="BUY"?"side-buy":"side-sell")+'">'+p.side+'</td><td>'+Number(p.quantity).toFixed(4)+'</td><td>'+Number(p.entry).toFixed(2)+'</td><td>'+Number(mark).toFixed(2)+'</td><td>'+(p.stop_loss==null?"—":Number(p.stop_loss).toFixed(2))+'</td><td>'+(p.take_profit==null?"—":Number(p.take_profit).toFixed(2))+'</td><td class="'+(pnl>=0?"good":"bad")+'">'+money(pnl)+'</td><td><button class="close" data-close="'+escapeHtml(p.id)+'">Close</button></td></tr>';}).join(""):'<tr><td colspan="9" class="empty">No open positions</td></tr>';
@@ -120,7 +121,7 @@ document.querySelectorAll("[data-symbol]").forEach(button=>button.onclick=()=>sw
 $("prevSymbol").onclick=()=>switchSymbol(symbol==="XAUUSD"?"BTCUSD":"XAUUSD").catch(e=>toast(e.message));
 $("nextSymbol").onclick=()=>switchSymbol(symbol==="XAUUSD"?"BTCUSD":"XAUUSD").catch(e=>toast(e.message));
 document.querySelectorAll("[data-timeframe]").forEach(button=>button.onclick=async()=>{timeframe=button.dataset.timeframe;document.querySelectorAll("[data-timeframe]").forEach(b=>b.classList.toggle("active",b===button));candles=[];candleSeries.setData([]);try{await loadCandles();if(botRunning){await api("/api/auto",{method:"POST",body:JSON.stringify({enabled:true,strategy_id:activeStrategyId,risk_pct:Number($("risk").value),timeframe})});toast("Bot timeframe changed to "+timeframe);}}catch(e){toast("Timeframe load failed: "+e.message);}});
-$("showFvg").onchange=()=>window.drawTradeXZones?.();$("showOb").onchange=()=>window.drawTradeXZones?.();
+
 $("zoomIn").onclick=()=>{chartBarSpacing=Math.min(30,chartBarSpacing*1.25);chart.timeScale().applyOptions({barSpacing:chartBarSpacing});};
 $("zoomOut").onclick=()=>{chartBarSpacing=Math.max(2,chartBarSpacing/1.25);chart.timeScale().applyOptions({barSpacing:chartBarSpacing});};
 $("restoreChart").onclick=()=>{chartBarSpacing=8;chart.timeScale().applyOptions({barSpacing:chartBarSpacing,rightOffset:5});chart.priceScale("right").applyOptions({autoScale:true});chart.timeScale().fitContent();};
@@ -130,7 +131,7 @@ function showView(name){
  document.querySelectorAll("[data-view]").forEach(el=>el.classList.toggle("active",el.dataset.view===name));
  const titles={trading:["WORKSPACE / TRADING TERMINAL","Trading Terminal"],portfolio:["ACCOUNT / PERFORMANCE","Balance & P&L"],positions:["RISK MANAGEMENT","Open Positions"],history:["ACCOUNT ACTIVITY","Trade History"],strategies:["AUTOMATION / RESEARCH","Strategies & Automation"]};
  $("viewEyebrow").textContent=titles[name][0];$("viewTitle").textContent=titles[name][1];
- if(name==="trading"&&chart){requestAnimationFrame(()=>{chart.applyOptions({width:Math.max(280,$("chart").clientWidth),height:Math.max(240,$("chart").clientHeight)});window.drawTradeXZones?.();});}
+ if(name==="trading"&&chart){requestAnimationFrame(()=>{chart.applyOptions({width:Math.max(280,$("chart").clientWidth),height:Math.max(240,$("chart").clientHeight)});});}
  history.replaceState(null,"","#"+name);
 }
 document.querySelectorAll("[data-view]").forEach(link=>link.addEventListener("click",event=>{event.preventDefault();showView(link.dataset.view);}));
