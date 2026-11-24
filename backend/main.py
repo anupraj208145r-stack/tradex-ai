@@ -508,6 +508,7 @@ def account_diagnostics(user=Depends(current_user)):
             "legacy_account_exists":legacy is not None,
             "legacy_migrated":bool(account.legacy_migrated) if account else None,
             "database_backend":engine.dialect.name,
+            "database_persistence_note":("PostgreSQL managed database" if engine.dialect.name=="postgresql" else "SQLite: Railway must mount a persistent Volume at /app/data or data may disappear on redeploy"),
             "legacy_data_recoverable":bool(legacy and (legacy_positions or legacy_trades or abs(float(legacy.balance)-float(legacy.starting_balance))>=0.005 or abs(float(legacy.realized_pnl))>=0.005)),
             "legacy_balance":round(float(legacy.balance),2) if legacy else None,
             "legacy_realized_pnl":round(float(legacy.realized_pnl),2) if legacy else None,
