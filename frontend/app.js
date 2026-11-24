@@ -111,15 +111,21 @@ function renderStrategies(){
  $("strategyList").innerHTML=list.map(s=>'<div class="strategy"><div><b>'+escapeHtml(s.name)+'</b><small>'+escapeHtml(s.category)+' · '+escapeHtml(s.rule_summary)+'</small></div><em>'+(s.executable?"IMPLEMENTED · PAPER":s.status==="research_required"?"RESEARCH ONLY":"TEMPLATE ONLY")+'</em></div>').join("");
 }
 async function loadStrategies(selected){strategies=await api("/api/strategies");const runnable=strategies.filter(s=>s.executable);$("autoStrategy").innerHTML=runnable.map(s=>'<option value="'+escapeHtml(s.id)+'">'+escapeHtml(s.name)+'</option>').join("");if(selected&&runnable.some(s=>s.id===selected))$("autoStrategy").value=selected;renderStrategies();}
+function paintFeedStatus(health){
+ const label=s=>health.live_ready?.[s]?"LIVE":health.feeds?.[s]==="missing_credentials"?"API KEY REQUIRED":health.feeds?.[s]==="awaiting_ticks"?"WAITING FOR PRICE TICK":(health.feeds?.[s]||"unknown").toUpperCase();
+ $("xauFeed").textContent="XAUUSD · "+label("XAUUSD");$("btcFeed").textContent="BTCUSD · "+label("BTCUSD");
+ const live=!!health.live_ready?.[symbol];
+ $("feedStatus").textContent=live?symbol+" LIVE MARKET DATA":symbol+" LIVE FEED NOT READY";
+ $("feedStatus").classList.toggle("live",live);
+ const error=health.last_errors?.[symbol];
+ if(!live&&error){$("chartCaption").textContent=symbol+" feed error: "+error;}
+ else if(!live&&health.feeds?.[symbol]==="awaiting_ticks"){$("chartCaption").textContent=symbol+" connection is open; waiting for the first live price tick. Historical candles are not live data.";}
+}
 async function refreshFeeds(){
  try{
   const response=await fetch(API+"/api/health",{cache:"no-store"});
   if(!response.ok)throw new Error("Health endpoint returned "+response.status);
-  const health=await response.json();
-  const label=s=>health.live_ready?.[s]?"LIVE":health.feeds?.[s]==="missing_credentials"?"API KEY REQUIRED":(health.feeds?.[s]||"unknown").toUpperCase();
-   if(!health.live_ready?.XAUUSD&&health.last_errors?.XAUUSD){$("chartCaption").textContent="XAUUSD feed: "+health.last_errors.XAUUSD+" · configure TWELVEDATA_API_KEY in Railway";}
-  $("xauFeed").textContent="XAUUSD · "+label("XAUUSD");$("btcFeed").textContent="BTCUSD · "+label("BTCUSD");
-  const live=Object.values(health.live_ready||{}).every(Boolean);$("feedStatus").textContent=live?"LIVE MARKET DATA":"LIVE FEEDS NOT READY";$("feedStatus").classList.toggle("live",live);
+  paintFeedStatus(await response.json());
  }catch(error){$("feedStatus").textContent="FEED STATUS UNAVAILABLE";$("xauFeed").textContent="XAUUSD · STATUS UNAVAILABLE";$("btcFeed").textContent="BTCUSD · STATUS UNAVAILABLE";}
 }
 function connectMarketSocket(){
