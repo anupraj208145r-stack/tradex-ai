@@ -120,7 +120,7 @@ def db_account(db,user_id:str):
                         side=old.side,quantity=old.quantity,entry=old.entry,exit=old.exit,pnl=old.pnl,
                         reason=old.reason,opened_at=old.opened_at,closed_at=old.closed_at))
         else:
-            account=UserPaperAccount(user_id=user_id,starting_balance=10000,balance=1000,realized_pnl=0,
+            account=UserPaperAccount(user_id=user_id,starting_balance=1000,balance=1000,realized_pnl=0,
                                      auto_enabled=False,active_strategy="STR-001",risk_pct=1)
             db.add(account)
         db.commit();db.refresh(account)
