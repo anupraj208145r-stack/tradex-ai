@@ -143,12 +143,24 @@ async function boot(){
  await refreshFeeds();
  connectMarketSocket();
  setInterval(refreshFeeds,15000);
+ let activeAccount=null;
  try{
   const initial=await refresh();
-  await loadStrategies(initial.account.active_strategy);
+  activeAccount=initial.account;
  }catch(error){
   console.error("Account bootstrap failed:",error);
-  toast("Market data is loading; account data needs diagnosis: "+error.message);
+  toast("Account data failed to load: "+error.message);
+ }
+ // Strategy loading must be independent: an account API failure must not
+ // prevent the public strategy catalogue and the user's custom strategies
+ // from being requested and rendered.
+ try{
+  await loadStrategies(activeAccount?.active_strategy);
+ }catch(error){
+  console.error("Strategy bootstrap failed:",error);
+  $("strategyList").innerHTML='<div class="empty-state">Strategies could not be loaded: '+escapeHtml(error.message)+'. Please refresh after checking your session.</div>';
+  $("strategyCount").textContent="0";
+  toast("Strategies failed to load: "+error.message);
  }
  try{await loadCandles();}catch(error){console.error("Candle load failed:",error);$("chartCaption").textContent="Historical candles unavailable · checking live feed";}
 }
