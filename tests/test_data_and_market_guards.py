@@ -1,3 +1,6 @@
+from sqlalchemy import create_engine, inspect, text
+
+from backend.db import apply_compatibility_migrations
 from backend.main import (
     legacy_account_is_untouched,
     market_candle_is_valid,
@@ -33,3 +36,39 @@ def test_candle_sanitizer_deduplicates_and_sorts_valid_rows():
     clean = sanitize_market_candles("XAUUSD", rows)
     assert [row["time"] for row in clean] == [60, 120]
     assert clean[-1]["close"] == 3559
+
+
+def test_existing_risk_state_table_gets_peak_equity_without_losing_rows():
+    engine = create_engine("sqlite:///:memory:")
+    try:
+        with engine.begin() as conn:
+            conn.exec_driver_sql("""
+                CREATE TABLE user_risk_states (
+                    user_id VARCHAR(64) PRIMARY KEY,
+                    day_key VARCHAR(10) NOT NULL,
+                    day_start_equity FLOAT NOT NULL
+                )
+            """)
+            conn.execute(text("""
+                INSERT INTO user_risk_states (user_id, day_key, day_start_equity)
+                VALUES ('user-1', '2026-11-25', 1000.0)
+            """))
+
+        apply_compatibility_migrations(engine)
+
+        columns = {column["name"] for column in inspect(engine).get_columns("user_risk_states")}
+        assert "peak_equity" in columns
+        with engine.connect() as conn:
+            row = conn.execute(text("""
+                SELECT user_id, day_key, day_start_equity, peak_equity
+                FROM user_risk_states WHERE user_id='user-1'
+            """)).one()
+        assert row.user_id == "user-1"
+        assert row.day_key == "2026-11-25"
+        assert row.day_start_equity == 1000.0
+        assert row.peak_equity == 0.0
+
+        # Re-running startup migrations must be safe and idempotent.
+        apply_compatibility_migrations(engine)
+    finally:
+        engine.dispose()
