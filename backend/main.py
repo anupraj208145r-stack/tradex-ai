@@ -391,6 +391,8 @@ async def on_tick(symbol:str,price:float,timestamp:int,source:str):
     now=int(time.time())
     if timestamp>10_000_000_000:timestamp=int(timestamp/1000)
     if timestamp<=0 or abs(int(timestamp)-now)>120:return
+    # Any validated provider tick (WebSocket or REST fallback) proves the feed is usable.
+    providers.STATUS[symbol]="connected"
     async with market_lock:
         minute=timestamp-(timestamp%60)
         current=current_candle.get(symbol)
