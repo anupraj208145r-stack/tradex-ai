@@ -60,7 +60,17 @@ function renderPositions(positions,quotes){
  }
 }
 function renderHistory(history){$("historyBody").innerHTML=history.length?history.slice().reverse().map(p=>'<tr><td><b>'+p.symbol+'</b></td><td>'+p.side+'</td><td>'+p.entry.toFixed(2)+'</td><td>'+p.exit.toFixed(2)+'</td><td class="'+(p.pnl>=0?"good":"bad")+'">'+money(p.pnl)+'</td><td>'+p.reason+'</td></tr>').join(""):'<tr><td colspan="6" class="empty">No completed trades</td></tr>';}
+function paintRisk(risk){
+ const panel=$("fundedMonitor");if(!panel||!risk)return;
+ const status=$("fundedStatus");status.textContent=risk.status.replaceAll("_"," ");status.dataset.state=risk.status;
+ $("fundedDaily").textContent=money(risk.daily_loss)+" / "+money(risk.daily_loss_limit);
+ $("fundedOverall").textContent=money(risk.overall_drawdown)+" / "+money(risk.max_overall_loss);
+ $("fundedTarget").textContent=money(risk.profit_progress)+" / "+money(risk.profit_target_amount);
+ $("fundedReset").textContent="Daily reset: "+risk.daily_reset_timezone+" · "+risk.day_key;
+ $("fundedMessage").textContent=risk.status==="DAILY_LOCKED"?"New entries locked until next UTC day. Existing positions remain monitored.":risk.status==="FAILED"?"Challenge failed: "+risk.lock_reason+". Reset the paper challenge to start again.":risk.status==="PASSED"?"Profit target reached. Challenge passed.":"Monitoring active · daily loss "+risk.daily_loss_pct+"% · max overall loss "+risk.max_overall_loss_pct+"%. Internal paper rules only.";
+}
 function paintAccount(account,quotes){
+ paintRisk(account.risk);
  $("balance").textContent=money(account.balance);$("equity").textContent=money(account.equity);
  $("realized").textContent=money(account.realized_pnl);$("unrealized").textContent=money(account.unrealized_pnl);
  $("realized").className=account.realized_pnl>=0?"good":"bad";$("unrealized").className=account.unrealized_pnl>=0?"good":"bad";
@@ -97,7 +107,8 @@ function connectMarketSocket(){
  ws.onmessage=event=>{
   let message;try{message=JSON.parse(event.data);}catch{return;}
   const quotes=message.quotes||{};
-  if(quotes[symbol])updateChart(quotes[symbol]);
+  Object.assign(latestQuotes,quotes);
+  if(latestQuotes[symbol])updateChart(latestQuotes[symbol]);
   if(message.account){
    const now=Date.now();
    if(now-lastAccountPaint>250){paintAccount(message.account,latestQuotes);lastAccountPaint=now;}
