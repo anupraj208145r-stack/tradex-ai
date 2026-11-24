@@ -29,8 +29,8 @@ class Base(DeclarativeBase):
 class PaperAccount(Base):
     __tablename__ = "paper_accounts"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
-    starting_balance: Mapped[float] = mapped_column(Float, default=10000.0)
-    balance: Mapped[float] = mapped_column(Float, default=10000.0)
+    starting_balance: Mapped[float] = mapped_column(Float, default=1000.0)
+    balance: Mapped[float] = mapped_column(Float, default=1000.0)
     realized_pnl: Mapped[float] = mapped_column(Float, default=0.0)
     auto_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     active_strategy: Mapped[str] = mapped_column(String(64), default="STR-001")
