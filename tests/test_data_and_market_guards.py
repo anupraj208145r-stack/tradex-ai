@@ -5,7 +5,10 @@ from backend.main import (
     legacy_account_is_untouched,
     market_candle_is_valid,
     sanitize_market_candles,
+    feed_is_fresh,
 )
+import backend.main as market_main
+
 
 
 def test_legacy_migration_recognizes_both_default_account_sizes():
@@ -80,3 +83,21 @@ def test_existing_risk_state_table_gets_all_missing_risk_columns_without_losing_
         apply_compatibility_migrations(engine)
     finally:
         engine.dispose()
+
+
+def test_live_feed_readiness_requires_a_recent_actual_price_tick(monkeypatch):
+    now = 1_800_000_000
+    monkeypatch.setattr(market_main.time, "time", lambda: now)
+    monkeypatch.setitem(market_main.quotes_meta, "BTCUSD", {
+        "symbol": "BTCUSD", "price": 60000, "time": now, "live": True
+    })
+    monkeypatch.setitem(market_main.providers.STATUS, "BTCUSD", "awaiting_ticks")
+    assert not feed_is_fresh("BTCUSD")
+
+    monkeypatch.setitem(market_main.providers.STATUS, "BTCUSD", "connected")
+    assert feed_is_fresh("BTCUSD")
+
+    monkeypatch.setitem(market_main.quotes_meta, "BTCUSD", {
+        "symbol": "BTCUSD", "price": 60000, "time": now - 61, "live": True
+    })
+    assert not feed_is_fresh("BTCUSD")
