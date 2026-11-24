@@ -1,6 +1,6 @@
 const API = location.origin;
 let symbol = "XAUUSD", timeframe = "1m", chart, candleSeries, candles = [], strategies = [], riskLines = [], overlayLines = [];
-let ws=null, reconnectDelay=1000, lastAccountPaint=0, botRunning=false, activeStrategyId="STR-001", chartBarSpacing=8;
+let ws=null, reconnectDelay=1000, lastAccountPaint=0, botRunning=false, activeStrategyId="STR-001", chartBarSpacing=8, latestQuotes={};
 const $ = id => document.getElementById(id);
 const CONTRACT_SIZE = {XAUUSD:100, BTCUSD:1};
 const money = n => (n < 0 ? "-$" : "$") + Math.abs(Number(n || 0)).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
@@ -41,14 +41,15 @@ function updateChart(quote){
  const price=Number(quote.price), step=({"1m":60,"5m":300,"15m":900,"30m":1800,"1h":3600,"4h":14400,"1d":86400})[timeframe], minute=Math.floor(Number(quote.time)/step)*step;
  const last=candles[candles.length-1];
  if(!last){const c={time:minute,open:price,high:price,low:price,close:price};candles.push(c);candleSeries.update(c);}
- else if(minute<last.time){$("lastPrice").textContent=price.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});return;}
+ else if(minute<last.time){last.high=Math.max(last.high,price);last.low=Math.min(last.low,price);last.close=price;candleSeries.update(last);}
  else if(minute===last.time){last.high=Math.max(last.high,price);last.low=Math.min(last.low,price);last.close=price;candleSeries.update(last);}
  else {const c={time:minute,open:price,high:price,low:price,close:price};candles.push(c);if(candles.length>1000)candles.shift();candleSeries.update(c);}
  $("lastPrice").textContent=price.toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
  
 }
 function renderPositions(positions,quotes){
- $("positionsBody").innerHTML=positions.length?positions.map(p=>{const mark=quotes[p.symbol]?.price??p.entry;const pnl=(mark-p.entry)*p.quantity*(CONTRACT_SIZE[p.symbol]||1)*(p.side==="BUY"?1:-1);return '<tr><td><b>'+escapeHtml(p.symbol)+'</b></td><td class="'+(p.side==="BUY"?"side-buy":"side-sell")+'">'+p.side+'</td><td>'+Number(p.quantity).toFixed(4)+'</td><td>'+Number(p.entry).toFixed(2)+'</td><td>'+Number(mark).toFixed(2)+'</td><td>'+(p.stop_loss==null?"—":Number(p.stop_loss).toFixed(2))+'</td><td>'+(p.take_profit==null?"—":Number(p.take_profit).toFixed(2))+'</td><td class="'+(pnl>=0?"good":"bad")+'">'+money(pnl)+'</td><td><button class="close" data-close="'+escapeHtml(p.id)+'">Close</button></td></tr>';}).join(""):'<tr><td colspan="9" class="empty">No open positions</td></tr>';
+ const liveQuotes={...latestQuotes,...(quotes||{})};
+ $("positionsBody").innerHTML=positions.length?positions.map(p=>{const mark=Number(liveQuotes[p.symbol]?.price??p.mark_price??p.entry);const pnl=liveQuotes[p.symbol]?.price!=null?(mark-p.entry)*p.quantity*(CONTRACT_SIZE[p.symbol]||1)*(p.side==="BUY"?1:-1):Number(p.unrealized_pnl??0);return '<tr><td><b>'+escapeHtml(p.symbol)+'</b></td><td class="'+(p.side==="BUY"?"side-buy":"side-sell")+'">'+p.side+'</td><td>'+Number(p.quantity).toFixed(4)+'</td><td>'+Number(p.entry).toFixed(2)+'</td><td>'+mark.toFixed(2)+'</td><td>'+(p.stop_loss==null?"—":Number(p.stop_loss).toFixed(2))+'</td><td>'+(p.take_profit==null?"—":Number(p.take_profit).toFixed(2))+'</td><td class="'+(pnl>=0?"good":"bad")+'">'+money(pnl)+'</td><td><button class="close" data-close="'+escapeHtml(p.id)+'">Close</button></td></tr>';}).join(""):'<tr><td colspan="9" class="empty">No open positions</td></tr>';
  if(candleSeries){
   for(const line of riskLines)candleSeries.removePriceLine(line);
   riskLines=[];
@@ -59,7 +60,17 @@ function renderPositions(positions,quotes){
  }
 }
 function renderHistory(history){$("historyBody").innerHTML=history.length?history.slice().reverse().map(p=>'<tr><td><b>'+p.symbol+'</b></td><td>'+p.side+'</td><td>'+p.entry.toFixed(2)+'</td><td>'+p.exit.toFixed(2)+'</td><td class="'+(p.pnl>=0?"good":"bad")+'">'+money(p.pnl)+'</td><td>'+p.reason+'</td></tr>').join(""):'<tr><td colspan="6" class="empty">No completed trades</td></tr>';}
+function paintRisk(risk){
+ const panel=$("fundedMonitor");if(!panel||!risk)return;
+ const status=$("fundedStatus");status.textContent=risk.status.replaceAll("_"," ");status.dataset.state=risk.status;
+ $("fundedDaily").textContent=money(risk.daily_loss)+" / "+money(risk.daily_loss_limit);
+ $("fundedOverall").textContent=money(risk.overall_drawdown)+" / "+money(risk.max_overall_loss);
+ $("fundedTarget").textContent=money(risk.profit_progress)+" / "+money(risk.profit_target_amount);
+ $("fundedReset").textContent="Daily reset: "+risk.daily_reset_timezone+" · "+risk.day_key;
+ $("fundedMessage").textContent=risk.status==="DAILY_LOCKED"?"New entries locked until next UTC day. Existing positions remain monitored.":risk.status==="FAILED"?"Challenge failed: "+risk.lock_reason+". Reset the paper challenge to start again.":risk.status==="PASSED"?"Profit target reached. Challenge passed.":"Monitoring active · daily loss "+risk.daily_loss_pct+"% · max overall loss "+risk.max_overall_loss_pct+"%. Internal paper rules only.";
+}
 function paintAccount(account,quotes){
+ paintRisk(account.risk);
  $("balance").textContent=money(account.balance);$("equity").textContent=money(account.equity);
  $("realized").textContent=money(account.realized_pnl);$("unrealized").textContent=money(account.unrealized_pnl);
  $("realized").className=account.realized_pnl>=0?"good":"bad";$("unrealized").className=account.unrealized_pnl>=0?"good":"bad";
@@ -69,7 +80,7 @@ function paintAccount(account,quotes){
  renderPositions(account.positions,quotes);renderHistory(account.history);
  $("positionCount").textContent=account.positions.length;$("historyCount").textContent=account.history.length;
 }
-async function refresh(){const [account,quotes]=await Promise.all([api("/api/account"),api("/api/quotes")]);paintAccount(account,quotes);return {account,quotes};}
+async function refresh(){const [account,quotes]=await Promise.all([api("/api/account"),api("/api/quotes")]);Object.assign(latestQuotes,quotes||{});paintAccount(account,latestQuotes);return {account,quotes};}
 function escapeHtml(value){return String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
 function renderStrategies(){
  const q=$("strategySearch").value.toLowerCase(),list=strategies.filter(s=>(s.name+" "+s.category).toLowerCase().includes(q));
@@ -96,10 +107,11 @@ function connectMarketSocket(){
  ws.onmessage=event=>{
   let message;try{message=JSON.parse(event.data);}catch{return;}
   const quotes=message.quotes||{};
-  if(quotes[symbol])updateChart(quotes[symbol]);
+  Object.assign(latestQuotes,quotes);
+  if(latestQuotes[symbol])updateChart(latestQuotes[symbol]);
   if(message.account){
    const now=Date.now();
-   if(now-lastAccountPaint>1000){paintAccount(message.account,quotes);lastAccountPaint=now;}
+   if(now-lastAccountPaint>250){paintAccount(message.account,latestQuotes);lastAccountPaint=now;}
   }
   if(message.feeds){$("btcFeed").textContent="BTCUSD · "+(message.feeds.BTCUSD||"unknown").toUpperCase();$("xauFeed").textContent="XAUUSD · "+(message.feeds.XAUUSD||"unknown").toUpperCase();}
  };

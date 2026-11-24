@@ -11,11 +11,12 @@ from fastapi.responses import FileResponse, RedirectResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select, desc, func
 
-from .db import (init_db, SessionLocal, Candle, PaperAccount, Position, Trade, UserPaperAccount, UserPosition, UserTrade, UserCustomStrategy, SupportTicket)
+from .db import (init_db, SessionLocal, Candle, PaperAccount, Position, Trade, UserPaperAccount, UserPosition, UserTrade, UserCustomStrategy, UserRiskState, SupportTicket)
 from .auth import current_user, verify_access_token
 import httpx
 from . import providers
 from .strategy_engine import signal_for, SUPPORTED_STRATEGIES, atr_value
+from .risk_engine import POLICY, evaluate_rules
 
 BASE=Path(__file__).parent
 CATALOG=json.loads((BASE/"strategies.json").read_text())
@@ -178,13 +179,43 @@ def trade_dict(t):
 def account_snapshot(user_id:str):
     with SessionLocal() as db:
         a=db_account(db,user_id)
-        positions=[position_dict(p) for p in db.scalars(select(UserPosition).where(UserPosition.user_id==user_id)).all()]
+        raw_positions=db.scalars(select(UserPosition).where(UserPosition.user_id==user_id)).all()
+        floating=0.0
+        positions=[]
+        for p in raw_positions:
+            mark=float(prices.get(p.symbol,p.entry))
+            pnl=(mark-p.entry)*p.quantity*CONTRACT_SIZE.get(p.symbol,1.0)*(1 if p.side=="BUY" else -1)
+            floating+=pnl
+            item=position_dict(p)
+            item.update({"mark_price":round(mark,5),"unrealized_pnl":round(pnl,2)})
+            positions.append(item)
+        equity=float(a.balance)+floating
+        today=time.strftime("%Y-%m-%d",time.gmtime())
+        state=db.get(UserRiskState,user_id)
+        if state is None:
+            state=UserRiskState(user_id=user_id,day_key=today,day_start_equity=equity,
+                peak_equity=equity,daily_locked=False,overall_failed=False,
+                challenge_passed=False,lock_reason="",updated_at=int(time.time()))
+            db.add(state)
+        result=evaluate_rules(starting_balance=a.starting_balance,
+            day_start_equity=state.day_start_equity,equity=equity,
+            state={"day_key":state.day_key,"daily_locked":state.daily_locked,
+                "overall_failed":state.overall_failed,"challenge_passed":state.challenge_passed,
+                "lock_reason":state.lock_reason},today=today)
+        state.day_key=result["day_key"];state.day_start_equity=result["day_start_equity"]
+        state.peak_equity=max(float(state.peak_equity or equity),equity)
+        state.daily_locked=result["daily_locked"];state.overall_failed=result["overall_failed"]
+        state.challenge_passed=result["challenge_passed"];state.lock_reason=result["lock_reason"]
+        state.updated_at=int(time.time())
+        if result["status"]!="ACTIVE":
+            a.auto_enabled=False
+        db.commit()
         history=[trade_dict(t) for t in db.scalars(select(UserTrade).where(UserTrade.user_id==user_id).order_by(desc(UserTrade.closed_at)).limit(100)).all()]
-        floating=sum((prices.get(p["symbol"],p["entry"])-p["entry"])*p["quantity"]*CONTRACT_SIZE.get(p["symbol"],1.0)*(1 if p["side"]=="BUY" else -1) for p in positions)
-        return {"balance":round(a.balance,2),"equity":round(a.balance+floating,2),
+        return {"balance":round(a.balance,2),"equity":round(equity,2),
             "realized_pnl":round(a.realized_pnl,2),"unrealized_pnl":round(floating,2),
             "positions":positions,"history":history,"auto":a.auto_enabled,
-            "active_strategy":a.active_strategy,"active_timeframe":a.active_timeframe,"risk_pct":a.risk_pct}
+            "active_strategy":a.active_strategy,"active_timeframe":a.active_timeframe,
+            "risk_pct":a.risk_pct,"risk":result}
 
 def get_strategy_items(user_id:str):
     with SessionLocal() as db:
@@ -249,6 +280,10 @@ def evaluate_auto(symbol:str):
     with SessionLocal() as db:
         accounts=db.scalars(select(UserPaperAccount).where(UserPaperAccount.auto_enabled.is_(True))).all()
         for account in accounts:
+            # Re-evaluate limits on every market tick before the bot can create a new order.
+            if account_snapshot(account.user_id)["risk"]["status"] != "ACTIVE":
+                account.auto_enabled=False
+                continue
             series=aggregate_candles(candles[symbol],account.active_timeframe or "1m")
             if len(series)<55:continue
             bar_time=int(series[-1]["time"]);bar_key=(account.user_id,symbol,account.active_timeframe or "1m")
@@ -311,6 +346,10 @@ async def publish():
 
 async def on_tick(symbol:str,price:float,timestamp:int,source:str):
     if price<=0:return
+    # Normalize provider timestamps (seconds vs milliseconds and stale clocks).
+    now=int(time.time())
+    if timestamp>10_000_000_000:timestamp=int(timestamp/1000)
+    if abs(int(timestamp)-now)>120:timestamp=now
     async with market_lock:
         prices[symbol]=price
         quotes_meta[symbol]={"symbol":symbol,"price":round(price,5),"time":timestamp,
@@ -419,7 +458,18 @@ def reset(req:ResetIn,user=Depends(current_user)):
         uid=user["id"];a=db_account(db,uid);a.starting_balance=req.balance;a.balance=req.balance;a.realized_pnl=0
         a.auto_enabled=False;a.updated_at=int(time.time())
         for p in db.scalars(select(UserPosition).where(UserPosition.user_id==uid)).all():db.delete(p)
-        db.query(UserTrade).filter(UserTrade.user_id==uid).delete();db.commit()
+        db.query(UserTrade).filter(UserTrade.user_id==uid).delete()
+        state=db.get(UserRiskState,uid)
+        today=time.strftime("%Y-%m-%d",time.gmtime())
+        if state is None:
+            db.add(UserRiskState(user_id=uid,day_key=today,day_start_equity=req.balance,
+                peak_equity=req.balance,daily_locked=False,overall_failed=False,
+                challenge_passed=False,lock_reason="",updated_at=int(time.time())))
+        else:
+            state.day_key=today;state.day_start_equity=req.balance;state.peak_equity=req.balance
+            state.daily_locked=False;state.overall_failed=False;state.challenge_passed=False
+            state.lock_reason="";state.updated_at=int(time.time())
+        db.commit()
     return account_snapshot(user["id"])
 
 @app.get("/api/quotes")
@@ -465,12 +515,14 @@ def market_structure(rows:list[dict])->dict:
 def get_candles(symbol:str,timeframe:str="1m"):
     if symbol not in SYMBOLS:raise HTTPException(404,"Unknown symbol")
     rows=candles[symbol]+([current_candle[symbol]] if symbol in current_candle else [])
+    rows=[c for c in rows if int(c["time"]) <= int(time.time())+60]
     return aggregate_candles(rows,timeframe)
 
 @app.get("/api/analysis/{symbol}")
 def get_analysis(symbol:str,timeframe:str="1m"):
     if symbol not in SYMBOLS:raise HTTPException(404,"Unknown symbol")
     rows=candles[symbol]+([current_candle[symbol]] if symbol in current_candle else [])
+    rows=[c for c in rows if int(c["time"]) <= int(time.time())+60]
     return market_structure(aggregate_candles(rows,timeframe))
 
 @app.get("/api/strategies")
@@ -481,6 +533,12 @@ def order(req:OrderIn,user=Depends(current_user)):
     if req.symbol not in prices or not feed_is_fresh(req.symbol):raise HTTPException(503,"No fresh live market price available yet for this symbol")
     with SessionLocal() as db:
         a=db_account(db,user["id"])
+        snapshot=account_snapshot(user["id"])
+        if snapshot["risk"]["status"]!="ACTIVE":
+            raise HTTPException(status_code=403,detail="Funded challenge lock: "+snapshot["risk"]["lock_reason"]+". Daily locks clear on the next UTC day; overall failure requires challenge reset.")
+        existing=db.scalars(select(UserPosition).where(UserPosition.user_id==user["id"])).all()
+        if len(existing)>=POLICY["max_positions"]:
+            raise HTTPException(status_code=403,detail="Maximum open position count reached")
         if req.quantity*prices[req.symbol]*CONTRACT_SIZE[req.symbol]>max(a.balance,0)*MAX_POSITION_NOTIONAL_MULTIPLE:
             raise HTTPException(400,"Paper order notional exceeds 5x account balance")
         entry=prices[req.symbol]
@@ -519,7 +577,12 @@ def auto(req:AutoIn,user=Depends(current_user)):
         if not any(feed_is_fresh(s) for s in SYMBOLS):
             raise HTTPException(503,"No live market feed is ready. Connect at least one supported feed before enabling auto trading.")
     with SessionLocal() as db:
-        a=db_account(db,user["id"]);a.auto_enabled=req.enabled;a.risk_pct=req.risk_pct
+        a=db_account(db,user["id"])
+        if req.enabled:
+            risk=account_snapshot(user["id"])["risk"]
+            if risk["status"]!="ACTIVE":
+                raise HTTPException(status_code=403,detail="Funded challenge lock: "+risk["lock_reason"])
+        a.auto_enabled=req.enabled;a.risk_pct=req.risk_pct
         if req.enabled:
             a.active_strategy=req.strategy_id or "STR-001"
             a.active_timeframe=req.timeframe

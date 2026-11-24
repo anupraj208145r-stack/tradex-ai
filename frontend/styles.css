@@ -177,3 +177,11 @@ main{max-width:1600px;min-width:0;width:100%;padding:clamp(16px,2.1vw,30px) clam
  .metrics strong{font-size:16px}
  .twocol{grid-template-columns:minmax(0,1fr)}
 }
+
+/* Funded-style paper challenge monitor */
+.funded-monitor{margin:0 0 16px;background:linear-gradient(145deg,#15223a,#111a2d)}
+.funded-monitor .twocol b{display:block;margin-top:6px;font-variant-numeric:tabular-nums}
+#fundedStatus[data-state="ACTIVE"]{color:#28d6a1}
+#fundedStatus[data-state="DAILY_LOCKED"]{color:#f6c76b}
+#fundedStatus[data-state="FAILED"]{color:#ff6b7a}
+#fundedStatus[data-state="PASSED"]{color:#78a0ff}
