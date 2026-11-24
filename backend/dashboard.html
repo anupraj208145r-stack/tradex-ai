@@ -2,18 +2,18 @@
 <aside class="sidebar">
   <div class="brand"><span class="logo">T</span><div><b>TradeX AI</b><small>TRADING TERMINAL</small></div></div>
   <div class="paper">● PAPER MODE ONLY</div><div class="feedpanel"><b>MARKET DATA</b><span id="xauFeed">XAUUSD · CONNECTING</span><span id="btcFeed">BTCUSD · CONNECTING</span></div>
-  <nav><a href="#overview">Dashboard</a><a href="#markets">Markets & Chart</a><a href="#automation">Auto Trader</a><a href="#strategies">Strategy Library</a><a href="#positions">Open Positions</a><a href="#history">Trade History</a></nav>
+  <nav class="appnav" aria-label="Main navigation">
+<a href="#trading" data-view="trading" class="active">Trading Terminal</a>
+<a href="#portfolio" data-view="portfolio">Balance &amp; P&amp;L</a>
+<a href="#positions" data-view="positions">Open Positions</a>
+<a href="#history" data-view="history">Trade History</a>
+<a href="#strategies" data-view="strategies">Strategies &amp; Automation</a>
+</nav>
   <div class="notice"><b>Simulation only</b><p>No broker connection, no deposits, and no real orders. Auto trading requires a fresh live feed for the selected instrument.</p></div>
 </aside>
 <main>
-<header><div><small>WORKSPACE / OVERVIEW</small><h1>Trading Dashboard</h1></div><div class="headeractions"><span id="userEmail" class="userlabel"></span><button id="logoutBtn" class="secondary">Sign out</button><button id="resetBtn" class="secondary">↺ Reset paper account</button></div></header>
-<section class="metrics" id="overview">
- <article><label>Paper balance</label><strong id="balance">$10,000.00</strong><small>Virtual capital</small></article>
- <article><label>Equity</label><strong id="equity">$10,000.00</strong><small>Balance + open P&L</small></article>
- <article><label>Realized P&L</label><strong id="realized">$0.00</strong><small>Closed positions</small></article>
- <article><label>Unrealized P&L</label><strong id="unrealized">$0.00</strong><small>Open positions</small></article>
-</section>
-<section class="topgrid">
+<header><div><small id="viewEyebrow">WORKSPACE / TRADING TERMINAL</small><h1 id="viewTitle">Trading Terminal</h1></div><div class="headeractions"><span id="userEmail" class="userlabel"></span><button id="logoutBtn" class="secondary">Sign out</button><button id="resetBtn" class="secondary">↺ Reset paper account</button></div></header>
+<section class="viewpage active" id="view-trading" data-page-view="trading"><section class="topgrid">
  <article class="panel" id="markets">
   <div class="panelhead"><div><small>MARKET WATCH</small><h2 id="chartTitle">XAUUSD · Gold / US Dollar</h2></div>
    <div class="tabs"><button data-symbol="XAUUSD" class="active">XAUUSD</button><button data-symbol="BTCUSD">BTCUSD</button></div></div>
@@ -22,7 +22,6 @@
    <div class="chartnav"><button id="prevSymbol" class="secondary">← Prev</button><button id="nextSymbol" class="secondary">Next →</button></div>
    <div class="timeframes" id="timeframes"><button data-timeframe="1m" class="active">1m</button><button data-timeframe="5m">5m</button><button data-timeframe="15m">15m</button><button data-timeframe="30m">30m</button><button data-timeframe="1h">1H</button><button data-timeframe="4h">4H</button><button data-timeframe="1d">1D</button></div>
   </div>
-  <div class="charttools overlays"><label><input type="checkbox" id="showFvg" checked> Show FVG</label><label><input type="checkbox" id="showOb" checked> Show Order Blocks</label><div class="chartzoom"><button id="zoomIn" title="Zoom in">＋</button><button id="zoomOut" title="Zoom out">－</button><button id="restoreChart" title="Restore chart">Restore</button></div></div>
   <div id="chart"></div><small class="muted" id="chartCaption">1m candles · XAUUSD and BTCUSD scanners run independently · paper only</small>
  </article>
  <article class="panel">
@@ -34,11 +33,38 @@
   <p class="hint">Filled at current simulator quote. No live market or broker order is sent.</p>
  </article>
 </section>
-<section class="bottomgrid">
+</section>
+<section class="viewpage" id="view-portfolio" data-page-view="portfolio"><div class="pageintro"><small>ACCOUNT OVERVIEW</small><h2>Balance &amp; Performance</h2><p>Track virtual capital, equity, realized results and open exposure.</p></div><section class="panel funded-monitor" id="fundedMonitor">
+ <div class="panelhead"><div><small>SIMULATED CHALLENGE GUARD</small><h2>Funded Rules Monitor</h2></div><span id="fundedStatus" class="count" data-state="ACTIVE">ACTIVE</span></div>
+ <div class="twocol">
+  <div><label>Daily loss / limit</label><b id="fundedDaily">$0.00 / $20.00</b></div>
+  <div><label>Overall drawdown / max</label><b id="fundedOverall">$0.00 / $50.00</b></div>
+  <div><label>Profit progress / target</label><b id="fundedTarget">$0.00 / $80.00</b></div>
+  <div><label>Daily reset</label><b id="fundedReset">UTC</b></div>
+ </div>
+ <p class="hint" id="fundedMessage">Internal paper simulation: 2% daily loss, 5% overall loss, 8% target. Not a prop-firm-certified rule set.</p>
+</section>
+<section class="metrics" id="overview">
+ <article><label>Paper balance</label><strong id="balance">$10,000.00</strong><small>Virtual capital</small></article>
+ <article><label>Equity</label><strong id="equity">$10,000.00</strong><small>Balance + open P&L</small></article>
+ <article><label>Realized P&L</label><strong id="realized">$0.00</strong><small>Closed positions</small></article>
+ <article><label>Unrealized P&L</label><strong id="unrealized">$0.00</strong><small>Open positions</small></article>
+</section>
+</section>
+<section class="viewpage" id="view-positions" data-page-view="positions"><div class="pageintro"><small>RISK MANAGEMENT</small><h2>Open Positions</h2><p>Monitor live marks, stop loss, take profit and unrealized paper P&amp;L.</p></div><section class="panel tablepanel" id="positions">
+ <div class="panelhead"><div><small>OPEN RISK</small><h2>Open Positions</h2></div><span id="positionCount" class="count">0</span></div>
+ <div class="tablewrap"><table><thead><tr><th>SYMBOL</th><th>SIDE</th><th>QTY</th><th>ENTRY</th><th>MARK</th><th>STOP LOSS</th><th>TAKE PROFIT</th><th>UNREALIZED P&L</th><th></th></tr></thead><tbody id="positionsBody"><tr><td colspan="9" class="empty">No open positions</td></tr></tbody></table></div>
+</section>
+</section>
+<section class="viewpage" id="view-history" data-page-view="history"><div class="pageintro"><small>ACCOUNT ACTIVITY</small><h2>Trade History</h2><p>Review closed paper trades, realized outcomes and exit reasons.</p></div><section class="panel tablepanel" id="history">
+ <div class="panelhead"><div><small>ACTIVITY</small><h2>Trade History</h2></div><span id="historyCount" class="count">0</span></div>
+ <div class="tablewrap"><table><thead><tr><th>SYMBOL</th><th>SIDE</th><th>ENTRY</th><th>EXIT</th><th>RESULT</th><th>REASON</th></tr></thead><tbody id="historyBody"><tr><td colspan="6" class="empty">No completed trades</td></tr></tbody></table></div>
+</section></section>
+<section class="viewpage" id="view-strategies" data-page-view="strategies"><section class="bottomgrid">
  <article class="panel" id="automation">
   <small>AUTOMATION</small><h2>Auto trader</h2>
   <label>Executable strategy<select id="autoStrategy"></select></label>
-  <label>Risk per trade <b id="riskLabel">1.00%</b><input id="risk" type="range" min=".25" max="5" step=".25" value="1"></label>
+  <label>Risk per trade <b id="riskLabel">0.50%</b><input id="risk" type="range" min=".05" max=".5" step=".05" value="0.5"></label>
   <div class="buttons"><button id="autoBtn" class="primary">▶ Start auto trading</button><button id="stopBtn" class="secondary" disabled>■ Stop</button></div>
   <p class="hint">Signals are evaluated on closed 1-minute candles. Adaptive ATR stops, 2R targets and risk-based paper sizing are applied automatically. Strategy performance is not guaranteed.</p>
   <p id="botStatus" class="status">● AUTO TRADING STOPPED</p>
@@ -52,13 +78,6 @@
   </div>
  </article>
 </section>
-<section class="panel tablepanel" id="positions">
- <div class="panelhead"><div><small>OPEN RISK</small><h2>Open Positions</h2></div><span id="positionCount" class="count">0</span></div>
- <div class="tablewrap"><table><thead><tr><th>SYMBOL</th><th>SIDE</th><th>QTY</th><th>ENTRY</th><th>MARK</th><th>STOP LOSS</th><th>TAKE PROFIT</th><th>UNREALIZED P&L</th><th></th></tr></thead><tbody id="positionsBody"><tr><td colspan="9" class="empty">No open positions</td></tr></tbody></table></div>
-</section>
-<section class="panel tablepanel" id="history">
- <div class="panelhead"><div><small>ACTIVITY</small><h2>Trade History</h2></div><span id="historyCount" class="count">0</span></div>
- <div class="tablewrap"><table><thead><tr><th>SYMBOL</th><th>SIDE</th><th>ENTRY</th><th>EXIT</th><th>RESULT</th><th>REASON</th></tr></thead><tbody id="historyBody"><tr><td colspan="6" class="empty">No completed trades</td></tr></tbody></table></div>
 </section>
 <footer>TradeX AI · Paper trading only · Live provider data when connected · Not investment advice</footer>
-</main></div><div id="toast" class="toast"></div><script src="/auth.js"></script><script src="/app.js"></script></body></html>
+</main></div><div id="toast" class="toast"></div><script src="/auth.js"></script><script src="/app.js?v=chart-pnl-funded-monitor-20261125"></script></body></html>

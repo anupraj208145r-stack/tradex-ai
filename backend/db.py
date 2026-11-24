@@ -29,8 +29,8 @@ class Base(DeclarativeBase):
 class PaperAccount(Base):
     __tablename__ = "paper_accounts"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
-    starting_balance: Mapped[float] = mapped_column(Float, default=10000.0)
-    balance: Mapped[float] = mapped_column(Float, default=10000.0)
+    starting_balance: Mapped[float] = mapped_column(Float, default=1000.0)
+    balance: Mapped[float] = mapped_column(Float, default=1000.0)
     realized_pnl: Mapped[float] = mapped_column(Float, default=0.0)
     auto_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     active_strategy: Mapped[str] = mapped_column(String(64), default="STR-001")
@@ -94,12 +94,14 @@ Index("ix_market_candles_symbol_time", Candle.symbol, Candle.time)
 class UserPaperAccount(Base):
     __tablename__ = "user_paper_accounts"
     user_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    starting_balance: Mapped[float] = mapped_column(Float, default=10000.0)
-    balance: Mapped[float] = mapped_column(Float, default=10000.0)
+    starting_balance: Mapped[float] = mapped_column(Float, default=1000.0)
+    balance: Mapped[float] = mapped_column(Float, default=1000.0)
     realized_pnl: Mapped[float] = mapped_column(Float, default=0.0)
     auto_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
     active_strategy: Mapped[str] = mapped_column(String(64), default="STR-001")
+    active_timeframe: Mapped[str] = mapped_column(String(8), default="1m")
     risk_pct: Mapped[float] = mapped_column(Float, default=1.0)
+    legacy_migrated: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_at: Mapped[int] = mapped_column(BigInteger, default=lambda: int(datetime.now(timezone.utc).timestamp()))
 
 class UserPosition(Base):
@@ -142,6 +144,19 @@ class UserCustomStrategy(Base):
     created_at: Mapped[int] = mapped_column(BigInteger)
 
 
+class UserRiskState(Base):
+    __tablename__ = "user_risk_states"
+    user_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    day_key: Mapped[str] = mapped_column(String(10))
+    day_start_equity: Mapped[float] = mapped_column(Float, default=1000.0)
+    peak_equity: Mapped[float] = mapped_column(Float, default=1000.0)
+    daily_locked: Mapped[bool] = mapped_column(Boolean, default=False)
+    overall_failed: Mapped[bool] = mapped_column(Boolean, default=False)
+    challenge_passed: Mapped[bool] = mapped_column(Boolean, default=False)
+    lock_reason: Mapped[str] = mapped_column(String(80), default="")
+    updated_at: Mapped[int] = mapped_column(BigInteger, default=0)
+
+
 class SupportTicket(Base):
     __tablename__ = "support_tickets"
     id: Mapped[str] = mapped_column(String(32), primary_key=True)
@@ -156,13 +171,62 @@ class SupportTicket(Base):
     created_at: Mapped[int] = mapped_column(BigInteger, index=True)
     updated_at: Mapped[int] = mapped_column(BigInteger)
 
+def apply_compatibility_migrations(target_engine=engine):
+    """Apply additive migrations for databases created by older TradeX releases.
+
+    SQLAlchemy create_all() creates missing tables but never adds new columns to
+    existing tables. Keep these migrations additive so existing trading records
+    and account balances are preserved.
+    """
+    inspector=inspect(target_engine)
+    table_names=set(inspector.get_table_names())
+    with target_engine.begin() as conn:
+        for table_name in ("paper_accounts", "user_paper_accounts"):
+            if table_name not in table_names:
+                continue
+            columns={column["name"] for column in inspect(target_engine).get_columns(table_name)}
+            if "active_timeframe" not in columns:
+                conn.exec_driver_sql(
+                    f"ALTER TABLE {table_name} ADD COLUMN active_timeframe VARCHAR(8) NOT NULL DEFAULT '1m'"
+                )
+                columns.add("active_timeframe")
+            if table_name == "user_paper_accounts" and "legacy_migrated" not in columns:
+                conn.exec_driver_sql(
+                    "ALTER TABLE user_paper_accounts ADD COLUMN legacy_migrated BOOLEAN NOT NULL DEFAULT FALSE"
+                )
+        # Funded-style risk state was added after some production databases
+        # were created. ORM SELECTs include every mapped column, so migrate
+        # the complete model, not just the first missing column.
+        if "user_risk_states" in table_names:
+            columns={column["name"] for column in inspect(target_engine).get_columns("user_risk_states")}
+            risk_columns = {
+                "day_key": "VARCHAR(10) NOT NULL DEFAULT ''",
+                "day_start_equity": "FLOAT NOT NULL DEFAULT 1000.0",
+                "peak_equity": "FLOAT NOT NULL DEFAULT 0.0",
+                "daily_locked": "BOOLEAN NOT NULL DEFAULT FALSE",
+                "overall_failed": "BOOLEAN NOT NULL DEFAULT FALSE",
+                "challenge_passed": "BOOLEAN NOT NULL DEFAULT FALSE",
+                "lock_reason": "VARCHAR(80) NOT NULL DEFAULT ''",
+                "updated_at": "BIGINT NOT NULL DEFAULT 0",
+            }
+            added_peak_equity = "peak_equity" not in columns
+            for column_name, column_definition in risk_columns.items():
+                if column_name not in columns:
+                    conn.exec_driver_sql(
+                        f"ALTER TABLE user_risk_states ADD COLUMN {column_name} {column_definition}"
+                    )
+            # For pre-monitoring rows, preserve their recorded day-start
+            # equity as the initial peak rather than treating the peak as zero.
+            if added_peak_equity and "day_start_equity" in columns:
+                conn.exec_driver_sql(
+                    "UPDATE user_risk_states SET peak_equity = day_start_equity "
+                    "WHERE peak_equity = 0 AND day_start_equity > 0"
+                )
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
-    # Add timeframe preference to existing installations without requiring a destructive migration.
-    columns={c["name"] for c in inspect(engine).get_columns("user_paper_accounts")}
-    if "active_timeframe" not in columns:
-        with engine.begin() as conn:
-            conn.exec_driver_sql("ALTER TABLE user_paper_accounts ADD COLUMN active_timeframe VARCHAR(8) NOT NULL DEFAULT '1m'")
+    apply_compatibility_migrations(engine)
     with SessionLocal() as db:
         if db.get(PaperAccount, 1) is None:
             db.add(PaperAccount(id=1))
