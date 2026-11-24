@@ -139,10 +139,12 @@ async function boot(){
  showView(location.hash.slice(1)||"trading");
  await window.authReady;
  if(!await window.getTradeXAccessToken?.())return;
- initChart();
- await refreshFeeds();
+ let chartReady=false;
+ try{initChart();chartReady=true;}
+ catch(error){console.error("Chart initialization failed:",error);$("chartCaption").textContent="Chart unavailable; account and strategy services are still loading.";}
+ try{await refreshFeeds();}catch(error){console.error("Feed status bootstrap failed:",error);}
  connectMarketSocket();
- setInterval(refreshFeeds,15000);
+ setInterval(()=>refreshFeeds().catch(error=>console.error("Feed refresh failed:",error)),15000);
  let activeAccount=null;
  try{
   const initial=await refresh();
@@ -151,9 +153,6 @@ async function boot(){
   console.error("Account bootstrap failed:",error);
   toast("Account data failed to load: "+error.message);
  }
- // Strategy loading must be independent: an account API failure must not
- // prevent the public strategy catalogue and the user's custom strategies
- // from being requested and rendered.
  try{
   await loadStrategies(activeAccount?.active_strategy);
  }catch(error){
@@ -162,6 +161,9 @@ async function boot(){
   $("strategyCount").textContent="0";
   toast("Strategies failed to load: "+error.message);
  }
- try{await loadCandles();}catch(error){console.error("Candle load failed:",error);$("chartCaption").textContent="Historical candles unavailable · checking live feed";}
+ if(chartReady){
+  try{await loadCandles();}
+  catch(error){console.error("Candle load failed:",error);$("chartCaption").textContent="Historical candles unavailable · checking live feed";}
+ }
 }
 boot().catch(error=>toast(error.message));
