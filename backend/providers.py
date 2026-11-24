@@ -135,8 +135,11 @@ async def rest_quote(symbol: str) -> float:
         return value
 
 async def rest_fallback(symbol: str, on_tick: TickCallback):
-    interval=5 if symbol=="BTCUSD" else 12
-    stale_after=12 if symbol=="BTCUSD" else 25
+    # Twelve Data Basic has a small per-minute API budget. Keep Gold polling
+    # conservative and back off after provider throttling instead of retrying.
+    base_interval=5 if symbol=="BTCUSD" else 60
+    stale_after=12 if symbol=="BTCUSD" else 60
+    interval=base_interval
     while True:
         try:
             if time.time()-LAST_TICK_AT[symbol] > stale_after:
@@ -144,9 +147,12 @@ async def rest_fallback(symbol: str, on_tick: TickCallback):
                 await on_tick(symbol,price,int(time.time()),
                     "coinbase-rest" if symbol=="BTCUSD" else "twelvedata-rest")
                 LAST_ERROR[symbol]=None
+                interval=base_interval
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             LAST_ERROR[symbol]=safe_error(exc)
             import logging; logging.getLogger("tradex.market").warning("%s REST fallback: %s",symbol,LAST_ERROR[symbol])
+            if "429" in str(exc) or "Too Many Requests" in str(exc):
+                interval=min(max(interval*2,base_interval),300)
         await asyncio.sleep(interval)
