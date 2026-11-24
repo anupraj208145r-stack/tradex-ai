@@ -51,6 +51,16 @@ class SupportUpdateIn(BaseModel):
     status:Literal["new","in_progress","resolved"]
     admin_note:str=Field(default="",max_length=2000)
 
+class AdminEmailIn(BaseModel):
+    subject:str=Field(min_length=3,max_length=160)
+    message:str=Field(min_length=10,max_length=5000)
+
+def supabase_admin_key()->str:
+    key=os.getenv("SUPABASE_SERVICE_ROLE_KEY","").strip() or os.getenv("SUPABASE_SECRET_KEY","").strip()
+    if not key:
+        raise HTTPException(status_code=503,detail="Configure SUPABASE_SERVICE_ROLE_KEY in server environment")
+    return key
+
 def admin_emails()->set[str]:
     return {item.strip().lower() for item in os.getenv("ADMIN_EMAILS","").split(",") if item.strip()}
 
@@ -754,6 +764,51 @@ def create_support_ticket(req:SupportRequestIn,request:Request):
     return {"ok":True,"ticket_id":ticket.id,"saved":True,"email_sent":delivered,
         "message":"Your request has been saved. "+("The support team has been notified by email." if delivered else "Email notification is not configured yet; your request is safely stored for the support team.")}
 
+@app.get("/api/admin/users")
+def list_admin_users(page:int=1,per_page:int=50,user=Depends(require_admin)):
+    if page<1 or per_page<1 or per_page>100:
+        raise HTTPException(status_code=422,detail="Use page >= 1 and per_page between 1 and 100")
+    key=supabase_admin_key()
+    base=os.getenv("SUPABASE_URL","").rstrip("/")
+    if not base:
+        raise HTTPException(status_code=503,detail="Supabase is not configured")
+    try:
+        response=httpx.get(base+"/auth/v1/admin/users",params={"page":page,"per_page":per_page},
+            headers={"apikey":key,"Authorization":"Bearer "+key},timeout=12.0)
+    except httpx.HTTPError:
+        raise HTTPException(status_code=503,detail="Supabase Auth is temporarily unavailable")
+    if response.status_code!=200:
+        raise HTTPException(status_code=502,detail="Could not retrieve users from Supabase Auth")
+    payload=response.json()
+    raw_users=payload.get("users",[]) if isinstance(payload,dict) else payload
+    users=[]
+    for item in raw_users:
+        meta=item.get("user_metadata") or {}
+        users.append({"id":item.get("id"),"email":item.get("email"),"phone":item.get("phone"),
+            "created_at":item.get("created_at"),"last_sign_in_at":item.get("last_sign_in_at"),
+            "confirmed_at":item.get("confirmed_at"),"display_name":meta.get("full_name") or meta.get("name")})
+    total=response.headers.get("x-total-count")
+    try:total_count=int(total) if total is not None else payload.get("total")
+    except (TypeError,ValueError):total_count=None
+    return {"users":users,"page":page,"per_page":per_page,"total":total_count}
+
+@app.post("/api/admin/users/{user_id}/email")
+def email_admin_user(user_id:str,req:AdminEmailIn,user=Depends(require_admin)):
+    key=supabase_admin_key()
+    base=os.getenv("SUPABASE_URL","").rstrip("/")
+    if not base:raise HTTPException(status_code=503,detail="Supabase is not configured")
+    try:
+        response=httpx.get(base+"/auth/v1/admin/users/"+user_id,
+            headers={"apikey":key,"Authorization":"Bearer "+key},timeout=10.0)
+    except httpx.HTTPError:
+        raise HTTPException(status_code=503,detail="Supabase Auth is temporarily unavailable")
+    if response.status_code!=200:raise HTTPException(status_code=404,detail="User not found")
+    target=response.json().get("email")
+    if not target:raise HTTPException(status_code=400,detail="This user has no email address")
+    sent=send_support_email(target,req.subject.strip(),req.message.strip())
+    if not sent:raise HTTPException(status_code=503,detail="Email delivery is not configured. Check RESEND_API_KEY and RESEND_FROM_EMAIL.")
+    return {"ok":True,"sent":True}
+
 @app.get("/api/admin/support")
 def list_support_tickets(user=Depends(require_admin)):
     with SessionLocal() as db:
@@ -774,6 +829,16 @@ def update_support_ticket(ticket_id:str,req:SupportUpdateIn,user=Depends(require
         f"Hi {customer_name},\n\nYour support request #{ticket_id} ({ticket_subject}) is now marked: {current_status.replace('_',' ').title()}.\n\nTradeX AI Support")
     return {"ok":True,"id":ticket_id,"status":current_status,"customer_notified":notified}
 
+
+@app.get("/admin/users")
+def admin_users_page(request:Request):
+    token=request.cookies.get("tradex_access_token")
+    if not token:return RedirectResponse("/login",status_code=303)
+    try:user=verify_access_token(token)
+    except HTTPException:return RedirectResponse("/login",status_code=303)
+    if not user.get("email") or user["email"].lower() not in admin_emails():
+        raise HTTPException(status_code=403,detail="Admin access required")
+    return FileResponse(BASE.parent/"frontend"/"admin-users.html",headers={"Cache-Control":"no-store"})
 
 @app.get("/admin/support")
 def admin_support_page(request:Request):
