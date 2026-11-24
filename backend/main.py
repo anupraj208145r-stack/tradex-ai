@@ -1,5 +1,5 @@
 from __future__ import annotations
-import asyncio, json, os, time, uuid, re
+import asyncio, json, os, time, uuid, re, math, logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
@@ -7,11 +7,11 @@ from typing import Literal
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect, Depends, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select, desc, func
 
-from .db import (init_db, SessionLocal, Candle, PaperAccount, Position, Trade, UserPaperAccount, UserPosition, UserTrade, UserCustomStrategy, UserRiskState, SupportTicket)
+from .db import (init_db, SessionLocal, engine, Candle, PaperAccount, Position, Trade, UserPaperAccount, UserPosition, UserTrade, UserCustomStrategy, UserRiskState, SupportTicket)
 from .auth import current_user, verify_access_token
 import httpx
 from . import providers
@@ -32,6 +32,11 @@ clients:dict[WebSocket,str]={}
 market_lock=asyncio.Lock()
 engine_status="starting"
 last_auto_bar:dict[tuple[str,str,str],int]={}
+last_live_prices:dict[str,float]={}
+pending_live_prices:dict[str,float]={}
+MAX_TICK_MOVE_PCT={"XAUUSD":0.008,"BTCUSD":0.03}
+MAX_CANDLE_RANGE_PCT={"XAUUSD":0.01,"BTCUSD":0.05}
+logger=logging.getLogger("tradex.api")
 
 
 class SupportRequestIn(BaseModel):
@@ -96,6 +101,15 @@ def feed_is_fresh(symbol:str,max_age_seconds:int=60)->bool:
     return bool(meta and meta.get("live") is True and providers.STATUS.get(symbol)=="connected" and
                 time.time()-int(meta.get("time",0))<=max_age_seconds)
 
+def legacy_account_is_untouched(balance:float,starting_balance:float,realized_pnl:float,
+                                 has_positions:bool,has_trades:bool)->bool:
+    known_defaults=(1000.0,10000.0)
+    return (any(abs(float(starting_balance)-value)<0.005 for value in known_defaults)
+            and abs(float(balance)-float(starting_balance))<0.005
+            and abs(float(realized_pnl))<0.005
+            and not has_positions and not has_trades)
+
+
 def db_account(db,user_id:str):
     account=db.get(UserPaperAccount,user_id)
     legacy=db.get(PaperAccount,1)
@@ -105,7 +119,7 @@ def db_account(db,user_id:str):
             account=UserPaperAccount(user_id=user_id,starting_balance=legacy.starting_balance,
                 balance=legacy.balance,realized_pnl=legacy.realized_pnl,auto_enabled=False,
                 active_strategy=legacy.active_strategy,active_timeframe=legacy.active_timeframe,
-                risk_pct=legacy.risk_pct,updated_at=legacy.updated_at)
+                risk_pct=legacy.risk_pct,legacy_migrated=True,updated_at=legacy.updated_at)
             db.add(account)
             for old in db.scalars(select(Position)).all():
                 if db.get(UserPosition,old.id) is None:
@@ -122,7 +136,7 @@ def db_account(db,user_id:str):
                         reason=old.reason,opened_at=old.opened_at,closed_at=old.closed_at))
         else:
             account=UserPaperAccount(user_id=user_id,starting_balance=1000,balance=1000,realized_pnl=0,
-                                     auto_enabled=False,active_strategy="STR-001",risk_pct=1)
+                                     auto_enabled=False,active_strategy="STR-001",risk_pct=1,legacy_migrated=True)
             db.add(account)
         db.commit();db.refresh(account)
     else:
@@ -134,14 +148,13 @@ def db_account(db,user_id:str):
         current_trades=db.scalar(select(UserTrade.id).where(UserTrade.user_id==user_id).limit(1))
         legacy_positions=db.scalar(select(Position.id).limit(1))
         legacy_trades=db.scalar(select(Trade.id).limit(1))
-        untouched=(abs(float(account.balance)-10000)<0.005 and
-                   abs(float(account.starting_balance)-10000)<0.005 and
-                   abs(float(account.realized_pnl))<0.005 and
-                   current_positions is None and current_trades is None)
+        untouched=legacy_account_is_untouched(account.balance,account.starting_balance,
+            account.realized_pnl,current_positions is not None,current_trades is not None)
         legacy_has_data=bool(legacy and (
             abs(float(legacy.balance)-float(legacy.starting_balance))>=0.005 or
             abs(float(legacy.realized_pnl))>=0.005 or legacy_positions or legacy_trades))
-        if user_count==1 and untouched and legacy_has_data:
+        # Attempt a one-time legacy import only for the sole untouched default account.
+        if not account.legacy_migrated and user_count==1 and untouched and legacy_has_data:
             account.starting_balance=legacy.starting_balance
             account.balance=legacy.balance
             account.realized_pnl=legacy.realized_pnl
@@ -164,6 +177,9 @@ def db_account(db,user_id:str):
                         side=old.side,quantity=old.quantity,entry=old.entry,exit=old.exit,pnl=old.pnl,
                         reason=old.reason,opened_at=old.opened_at,closed_at=old.closed_at))
             db.commit();db.refresh(account)
+    if not account.legacy_migrated:
+        account.legacy_migrated=True
+        db.commit();db.refresh(account)
     return account
 
 def position_dict(p):
@@ -230,6 +246,32 @@ def ema(values:list[float],period:int):
     k=2/(period+1);result=sum(values[:period])/period
     for v in values[period:]:result=v*k+result*(1-k)
     return result
+
+def market_candle_is_valid(symbol:str,c:dict)->bool:
+    try:
+        o,h,l,cl=(float(c[k]) for k in ("open","high","low","close"))
+    except (KeyError,TypeError,ValueError):
+        return False
+    if not all(math.isfinite(v) and v>0 for v in (o,h,l,cl)):
+        return False
+    if h < max(o,cl) or l > min(o,cl) or h < l:
+        return False
+    return (h-l)/((o+cl)/2) <= MAX_CANDLE_RANGE_PCT.get(symbol,0.05)
+
+
+def sanitize_market_candles(symbol:str,rows:list[dict])->list[dict]:
+    by_time={}
+    for c in rows:
+        try: stamp=int(c["time"])
+        except (KeyError,TypeError,ValueError): continue
+        if market_candle_is_valid(symbol,c):
+            item={k:(stamp if k=="time" else float(c[k])) for k in ("time","open","high","low","close")}
+            if "volume" in c:
+                try:item["volume"]=max(0.0,float(c["volume"]))
+                except (TypeError,ValueError):item["volume"]=0.0
+            by_time[stamp]=item
+    return [by_time[t] for t in sorted(by_time)][-1000:]
+
 
 def persist_candle(symbol:str,c:dict,source:str):
     with SessionLocal() as db:
@@ -345,17 +387,31 @@ async def publish():
     for ws in dead:clients.pop(ws,None)
 
 async def on_tick(symbol:str,price:float,timestamp:int,source:str):
-    if price<=0:return
-    # Normalize provider timestamps (seconds vs milliseconds and stale clocks).
+    if symbol not in SYMBOLS or not math.isfinite(float(price)) or price<=0:return
     now=int(time.time())
     if timestamp>10_000_000_000:timestamp=int(timestamp/1000)
-    if abs(int(timestamp)-now)>120:timestamp=now
+    if timestamp<=0 or abs(int(timestamp)-now)>120:return
     async with market_lock:
-        prices[symbol]=price
-        quotes_meta[symbol]={"symbol":symbol,"price":round(price,5),"time":timestamp,
-            "feed":source,"status":"connected","live":True}
         minute=timestamp-(timestamp%60)
         current=current_candle.get(symbol)
+        if current is not None and minute < int(current["time"]):
+            return
+        reference=last_live_prices.get(symbol,prices.get(symbol))
+        threshold=MAX_TICK_MOVE_PCT.get(symbol,0.03)
+        if reference and abs(float(price)-float(reference))/float(reference)>threshold:
+            pending=pending_live_prices.get(symbol)
+            if pending and abs(float(price)-pending)/pending<=threshold*0.2:
+                pending_live_prices.pop(symbol,None)
+                last_live_prices[symbol]=float(price)
+            else:
+                pending_live_prices[symbol]=float(price)
+                return
+        else:
+            pending_live_prices.pop(symbol,None)
+            last_live_prices[symbol]=float(price)
+        prices[symbol]=float(price)
+        quotes_meta[symbol]={"symbol":symbol,"price":round(float(price),5),"time":timestamp,
+            "feed":source,"status":"connected","live":True}
         closed=False
         if current is None:
             current={"time":minute,"open":price,"high":price,"low":price,"close":price,"volume":0}
@@ -364,8 +420,9 @@ async def on_tick(symbol:str,price:float,timestamp:int,source:str):
             current["high"]=max(current["high"],price);current["low"]=min(current["low"],price);current["close"]=price
         else:
             finished=current.copy()
-            candles[symbol].append(finished);candles[symbol]=candles[symbol][-1000:]
-            persist_candle(symbol,finished,source);closed=True
+            if market_candle_is_valid(symbol,finished):
+                candles[symbol].append(finished);candles[symbol]=candles[symbol][-1000:]
+                persist_candle(symbol,finished,source);closed=True
             current={"time":minute,"open":price,"high":price,"low":price,"close":price,"volume":0}
             current_candle[symbol]=current
         if closed:evaluate_auto(symbol)
@@ -376,6 +433,7 @@ async def on_tick(symbol:str,price:float,timestamp:int,source:str):
 async def market_worker(symbol:str):
     try:
         history=await providers.history(symbol)
+        history=sanitize_market_candles(symbol,history)
         if history:
             merged={int(c["time"]):{k:c[k] for k in ("time","open","high","low","close")} for c in candles[symbol]}
             for c in history:
@@ -404,7 +462,7 @@ async def lifespan(app:FastAPI):
         db.commit()
         for symbol in SYMBOLS:
             rows=db.scalars(select(Candle).where(Candle.symbol==symbol,Candle.timeframe=="1m").order_by(desc(Candle.time)).limit(1000)).all()
-            candles[symbol]=[{"time":r.time,"open":r.open,"high":r.high,"low":r.low,"close":r.close} for r in reversed(rows)]
+            candles[symbol]=sanitize_market_candles(symbol,[{"time":r.time,"open":r.open,"high":r.high,"low":r.low,"close":r.close} for r in reversed(rows)])
             if candles[symbol]:
                 last=candles[symbol][-1];prices[symbol]=last["close"]
                 quotes_meta[symbol]={"symbol":symbol,"price":last["close"],"time":last["time"],"feed":"database","status":"history_only","live":False}
@@ -418,6 +476,11 @@ async def lifespan(app:FastAPI):
 
 app=FastAPI(title="TradeX AI Paper Trading API",version="0.2.0",lifespan=lifespan)
 app.add_middleware(CORSMiddleware,allow_origins=os.getenv("CORS_ORIGINS","http://localhost:8000").split(","),allow_methods=["GET","POST"],allow_headers=["Content-Type"])
+
+@app.exception_handler(Exception)
+async def unhandled_api_error(request:Request,exc:Exception):
+    logger.exception("Unhandled request error: %s %s",request.method,request.url.path)
+    return JSONResponse(status_code=500,content={"detail":"Internal server error","path":request.url.path})
 
 @app.get("/api/health")
 def health():
@@ -443,6 +506,9 @@ def account_diagnostics(user=Depends(current_user)):
             "user_trades":db.scalar(select(func.count()).select_from(UserTrade).where(UserTrade.user_id==uid)) or 0,
             "total_user_accounts":db.scalar(select(func.count()).select_from(UserPaperAccount)) or 0,
             "legacy_account_exists":legacy is not None,
+            "legacy_migrated":bool(account.legacy_migrated) if account else None,
+            "database_backend":engine.dialect.name,
+            "legacy_data_recoverable":bool(legacy and (legacy_positions or legacy_trades or abs(float(legacy.balance)-float(legacy.starting_balance))>=0.005 or abs(float(legacy.realized_pnl))>=0.005)),
             "legacy_balance":round(float(legacy.balance),2) if legacy else None,
             "legacy_realized_pnl":round(float(legacy.realized_pnl),2) if legacy else None,
             "legacy_positions":db.scalar(select(func.count()).select_from(Position)) or 0,
@@ -515,14 +581,14 @@ def market_structure(rows:list[dict])->dict:
 def get_candles(symbol:str,timeframe:str="1m"):
     if symbol not in SYMBOLS:raise HTTPException(404,"Unknown symbol")
     rows=candles[symbol]+([current_candle[symbol]] if symbol in current_candle else [])
-    rows=[c for c in rows if int(c["time"]) <= int(time.time())+60]
+    rows=[c for c in sanitize_market_candles(symbol,rows) if int(c["time"]) <= int(time.time())+60]
     return aggregate_candles(rows,timeframe)
 
 @app.get("/api/analysis/{symbol}")
 def get_analysis(symbol:str,timeframe:str="1m"):
     if symbol not in SYMBOLS:raise HTTPException(404,"Unknown symbol")
     rows=candles[symbol]+([current_candle[symbol]] if symbol in current_candle else [])
-    rows=[c for c in rows if int(c["time"]) <= int(time.time())+60]
+    rows=[c for c in sanitize_market_candles(symbol,rows) if int(c["time"]) <= int(time.time())+60]
     return market_structure(aggregate_candles(rows,timeframe))
 
 @app.get("/api/strategies")
