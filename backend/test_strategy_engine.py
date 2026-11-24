@@ -3,7 +3,7 @@ import unittest
 from backend.strategy_engine import signal_for
 
 
-def candles(count=20):
+def candles(count=30):
     rows=[]
     for i in range(count):
         base=100 + (i % 3) * 0.1
