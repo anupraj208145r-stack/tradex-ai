@@ -184,7 +184,8 @@ def account_snapshot(user_id:str):
         equity=float(a.balance)+floating
         day_start=int(time.time())//86400*86400
         daily_realized=float(db.scalar(select(func.coalesce(func.sum(UserTrade.pnl),0.0)).where(UserTrade.user_id==user_id,UserTrade.closed_at>=day_start)) or 0.0)
-        daily_pnl=daily_realized+floating
+        daily_floating=sum((prices.get(p["symbol"],p["entry"])-p["entry"])*p["quantity"]*CONTRACT_SIZE.get(p["symbol"],1.0)*(1 if p["side"]=="BUY" else -1) for p in positions if int(p["opened_at"])>=day_start)
+        daily_pnl=daily_realized+daily_floating
         daily_limit=float(a.starting_balance)*0.03
         overall_limit=float(a.starting_balance)*0.08
         profit_target=float(a.starting_balance)*0.08
