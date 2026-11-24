@@ -295,8 +295,14 @@ async def publish():
     if not clients:return
     dead=[]
     for ws,user_id in list(clients.items()):
-        try:await ws.send_json({"quotes":quotes_meta,"account":account_snapshot(user_id),"feeds":providers.STATUS})
-        except Exception:dead.append(ws)
+        try:
+            await ws.send_json({"quotes":quotes_meta,"feeds":providers.STATUS})
+            try:
+                await ws.send_json({"account":account_snapshot(user_id)})
+            except Exception as exc:
+                await ws.send_json({"account_error":"Account data temporarily unavailable"})
+        except Exception:
+            dead.append(ws)
     for ws in dead:clients.pop(ws,None)
 
 async def on_tick(symbol:str,price:float,timestamp:int,source:str):
@@ -378,6 +384,27 @@ def health():
 
 @app.get("/api/me")
 def me(user=Depends(current_user)):return {"id":user["id"],"email":user.get("email"),"phone":user.get("phone")}
+
+@app.get("/api/account/diagnostics")
+def account_diagnostics(user=Depends(current_user)):
+    with SessionLocal() as db:
+        uid=user["id"]
+        account=db.get(UserPaperAccount,uid)
+        legacy=db.get(PaperAccount,1)
+        return {
+            "authenticated":True,
+            "user_account_exists":account is not None,
+            "user_balance":round(float(account.balance),2) if account else None,
+            "user_realized_pnl":round(float(account.realized_pnl),2) if account else None,
+            "user_positions":db.scalar(select(func.count()).select_from(UserPosition).where(UserPosition.user_id==uid)) or 0,
+            "user_trades":db.scalar(select(func.count()).select_from(UserTrade).where(UserTrade.user_id==uid)) or 0,
+            "total_user_accounts":db.scalar(select(func.count()).select_from(UserPaperAccount)) or 0,
+            "legacy_account_exists":legacy is not None,
+            "legacy_balance":round(float(legacy.balance),2) if legacy else None,
+            "legacy_realized_pnl":round(float(legacy.realized_pnl),2) if legacy else None,
+            "legacy_positions":db.scalar(select(func.count()).select_from(Position)) or 0,
+            "legacy_trades":db.scalar(select(func.count()).select_from(Trade)) or 0
+        }
 
 @app.get("/api/account")
 def account(user=Depends(current_user)):return account_snapshot(user["id"])
@@ -511,7 +538,11 @@ async def ws_market(ws:WebSocket):
     uid=user["id"]
     await ws.accept();clients[ws]=uid
     try:
-        await ws.send_json({"quotes":quotes_meta,"account":account_snapshot(uid),"feeds":providers.STATUS})
+        await ws.send_json({"quotes":quotes_meta,"feeds":providers.STATUS})
+        try:
+            await ws.send_json({"account":account_snapshot(uid)})
+        except Exception:
+            await ws.send_json({"account_error":"Account data temporarily unavailable"})
         while True:await ws.receive_text()
     except WebSocketDisconnect:clients.pop(ws,None)
     except Exception:clients.pop(ws,None)
