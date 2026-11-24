@@ -511,12 +511,14 @@ def market_structure(rows:list[dict])->dict:
 def get_candles(symbol:str,timeframe:str="1m"):
     if symbol not in SYMBOLS:raise HTTPException(404,"Unknown symbol")
     rows=candles[symbol]+([current_candle[symbol]] if symbol in current_candle else [])
+    rows=[c for c in rows if int(c["time"]) <= int(time.time())+60]
     return aggregate_candles(rows,timeframe)
 
 @app.get("/api/analysis/{symbol}")
 def get_analysis(symbol:str,timeframe:str="1m"):
     if symbol not in SYMBOLS:raise HTTPException(404,"Unknown symbol")
     rows=candles[symbol]+([current_candle[symbol]] if symbol in current_candle else [])
+    rows=[c for c in rows if int(c["time"]) <= int(time.time())+60]
     return market_structure(aggregate_candles(rows,timeframe))
 
 @app.get("/api/strategies")
