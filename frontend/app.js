@@ -2,6 +2,7 @@ const API = location.origin;
 let symbol = "XAUUSD", timeframe = "1m", chart, candleSeries, candles = [], strategies = [], riskLines = [], overlayLines = [];
 let ws=null, reconnectDelay=1000, lastAccountPaint=0, botRunning=false, activeStrategyId="STR-001", chartBarSpacing=8;
 const $ = id => document.getElementById(id);
+const CONTRACT_SIZE = {XAUUSD:100, BTCUSD:1};
 const money = n => (n < 0 ? "-$" : "$") + Math.abs(Number(n || 0)).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 function toast(message){const el=$("toast");el.textContent=message;el.classList.add("show");setTimeout(()=>el.classList.remove("show"),2300);}
 async function api(path, options={}){const token=await window.getTradeXAccessToken?.();if(!token)throw new Error("Please sign in again.");const response=await fetch(API+path,{...options,headers:{"Content-Type":"application/json",...(options.headers||{}),"Authorization":"Bearer "+token}});const data=await response.json();if(!response.ok)throw new Error(data.detail||"Request failed");return data;}
@@ -33,7 +34,7 @@ async function loadCandles(){
   $("lastPrice").textContent=Number(candles[candles.length-1].close).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
  }
 
- $("chartCaption").textContent=timeframe+" candles · both market scanners operate independently · paper only";
+ $("chartCaption").textContent=candles.length?timeframe+" candles · XAUUSD contract: 100 oz/lot · paper only":"No historical candles returned for "+symbol+" · check the market-data feed/API key";
 }
 function updateChart(quote){
  if(!quote||!Number.isFinite(Number(quote.price))||!Number.isFinite(Number(quote.time)))return;
@@ -47,7 +48,7 @@ function updateChart(quote){
  
 }
 function renderPositions(positions,quotes){
- $("positionsBody").innerHTML=positions.length?positions.map(p=>{const mark=quotes[p.symbol]?.price??p.entry;const pnl=(mark-p.entry)*p.quantity*(p.side==="BUY"?1:-1);return '<tr><td><b>'+escapeHtml(p.symbol)+'</b></td><td class="'+(p.side==="BUY"?"side-buy":"side-sell")+'">'+p.side+'</td><td>'+Number(p.quantity).toFixed(4)+'</td><td>'+Number(p.entry).toFixed(2)+'</td><td>'+Number(mark).toFixed(2)+'</td><td>'+(p.stop_loss==null?"—":Number(p.stop_loss).toFixed(2))+'</td><td>'+(p.take_profit==null?"—":Number(p.take_profit).toFixed(2))+'</td><td class="'+(pnl>=0?"good":"bad")+'">'+money(pnl)+'</td><td><button class="close" data-close="'+escapeHtml(p.id)+'">Close</button></td></tr>';}).join(""):'<tr><td colspan="9" class="empty">No open positions</td></tr>';
+ $("positionsBody").innerHTML=positions.length?positions.map(p=>{const mark=quotes[p.symbol]?.price??p.entry;const pnl=(mark-p.entry)*p.quantity*(CONTRACT_SIZE[p.symbol]||1)*(p.side==="BUY"?1:-1);return '<tr><td><b>'+escapeHtml(p.symbol)+'</b></td><td class="'+(p.side==="BUY"?"side-buy":"side-sell")+'">'+p.side+'</td><td>'+Number(p.quantity).toFixed(4)+'</td><td>'+Number(p.entry).toFixed(2)+'</td><td>'+Number(mark).toFixed(2)+'</td><td>'+(p.stop_loss==null?"—":Number(p.stop_loss).toFixed(2))+'</td><td>'+(p.take_profit==null?"—":Number(p.take_profit).toFixed(2))+'</td><td class="'+(pnl>=0?"good":"bad")+'">'+money(pnl)+'</td><td><button class="close" data-close="'+escapeHtml(p.id)+'">Close</button></td></tr>';}).join(""):'<tr><td colspan="9" class="empty">No open positions</td></tr>';
  if(candleSeries){
   for(const line of riskLines)candleSeries.removePriceLine(line);
   riskLines=[];
@@ -82,6 +83,7 @@ async function refreshFeeds(){
   if(!response.ok)throw new Error("Health endpoint returned "+response.status);
   const health=await response.json();
   const label=s=>health.live_ready?.[s]?"LIVE":health.feeds?.[s]==="missing_credentials"?"API KEY REQUIRED":(health.feeds?.[s]||"unknown").toUpperCase();
+   if(!health.live_ready?.XAUUSD&&health.last_errors?.XAUUSD){$("chartCaption").textContent="XAUUSD feed: "+health.last_errors.XAUUSD+" · configure TWELVEDATA_API_KEY in Railway";}
   $("xauFeed").textContent="XAUUSD · "+label("XAUUSD");$("btcFeed").textContent="BTCUSD · "+label("BTCUSD");
   const live=Object.values(health.live_ready||{}).every(Boolean);$("feedStatus").textContent=live?"LIVE MARKET DATA":"LIVE FEEDS NOT READY";$("feedStatus").classList.toggle("live",live);
  }catch(error){$("feedStatus").textContent="FEED STATUS UNAVAILABLE";$("xauFeed").textContent="XAUUSD · STATUS UNAVAILABLE";$("btcFeed").textContent="BTCUSD · STATUS UNAVAILABLE";}
