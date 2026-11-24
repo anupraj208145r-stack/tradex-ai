@@ -410,6 +410,7 @@ async def on_tick(symbol:str,price:float,timestamp:int,source:str):
             pending_live_prices.pop(symbol,None)
             last_live_prices[symbol]=float(price)
         prices[symbol]=float(price)
+        providers.LAST_TICK_AT[symbol]=time.time()
         quotes_meta[symbol]={"symbol":symbol,"price":round(float(price),5),"time":timestamp,
             "feed":source,"status":"connected","live":True}
         closed=False
@@ -447,10 +448,15 @@ async def market_worker(symbol:str):
             current_candle[symbol]={k:last[k] for k in ("time","open","high","low","close")}
     except Exception as exc:
         providers.LAST_ERROR[symbol]=str(exc)[:240]
-    if symbol=="BTCUSD":
-        await providers.coinbase_stream(on_tick)
-    else:
-        await providers.gold_stream(on_tick)
+    fallback_task=asyncio.create_task(providers.rest_fallback(symbol,on_tick))
+    try:
+        if symbol=="BTCUSD":
+            await providers.coinbase_stream(on_tick)
+        else:
+            await providers.gold_stream(on_tick)
+    finally:
+        fallback_task.cancel()
+        await asyncio.gather(fallback_task,return_exceptions=True)
 
 @asynccontextmanager
 async def lifespan(app:FastAPI):
