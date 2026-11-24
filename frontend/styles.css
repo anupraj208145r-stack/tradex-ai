@@ -114,3 +114,66 @@
  .headeractions button{padding:8px;font-size:9px}
 }
 @media(prefers-reduced-motion:reduce){.viewpage{animation:none}*{scroll-behavior:auto!important;transition:none!important}}
+
+
+/* Five-page workspace: consistent sizing, density and responsive navigation */
+.app{grid-template-columns:clamp(184px,17vw,228px) minmax(0,1fr)}
+main{max-width:1600px;min-width:0;width:100%;padding:clamp(16px,2.1vw,30px) clamp(12px,2.2vw,32px)}
+.appnav{display:grid;gap:6px}
+.appnav a{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.viewpage{width:100%;min-width:0}
+.viewpage>.topgrid,.viewpage>.bottomgrid{width:100%;min-width:0}
+#view-portfolio .metrics{grid-template-columns:repeat(4,minmax(0,1fr))}
+#view-positions .tablepanel,#view-history .tablepanel{width:100%;margin-top:0}
+#view-positions .tablewrap,#view-history .tablewrap{width:100%;overflow-x:auto;overscroll-behavior-x:contain}
+#view-positions table,#view-history table{min-width:760px}
+#view-positions .pageintro,#view-history .pageintro{margin-bottom:16px}
+#view-positions .tablepanel,#view-history .tablepanel{padding:clamp(12px,1.5vw,20px)}
+#view-strategies .bottomgrid{width:100%;grid-template-columns:minmax(260px,.75fr) minmax(0,1.25fr)}
+#view-strategies .strategylist{max-height:min(62vh,680px)}
+@media(max-width:1100px){
+ .app{grid-template-columns:180px minmax(0,1fr)}
+ main{padding:18px 16px}
+ #view-portfolio .metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
+ #view-trading .topgrid,#view-strategies .bottomgrid{grid-template-columns:minmax(0,1fr)}
+}
+@media(max-width:720px){
+ .app{display:flex;flex-direction:column;min-height:100dvh}
+ .sidebar{position:sticky;top:0;width:100%;height:auto;max-height:none;padding:9px 10px;gap:0}
+ .brand{margin:0 0 8px}
+ .paper{width:max-content;margin:0 0 8px}
+ .feedpanel,.notice{display:none}
+ .appnav{display:flex;align-items:stretch;gap:5px;width:100%;overflow-x:auto;overflow-y:hidden;scrollbar-width:none;white-space:nowrap;padding:0 0 3px}
+ .appnav::-webkit-scrollbar{display:none}
+ .appnav a{flex:0 0 auto;min-height:36px;padding:8px 10px;font-size:10px;white-space:nowrap}
+ .appnav a.active{box-shadow:inset 0 -2px #78a0ff}
+ main{padding:13px 10px;max-width:100%;overflow:hidden}
+ header{align-items:flex-start;gap:8px;margin-bottom:14px}
+ header h1{font-size:19px}
+ .headeractions{flex-wrap:wrap;justify-content:flex-end;max-width:55%}
+ .headeractions button{padding:7px 8px;font-size:9px}
+ .viewpage>.topgrid,.viewpage>.bottomgrid{grid-template-columns:minmax(0,1fr);gap:10px}
+ #view-trading #chart{height:clamp(270px,74vw,410px);min-height:260px}
+ #view-portfolio .metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+ #view-portfolio .metrics article{padding:12px}
+ #view-portfolio .metrics strong{font-size:clamp(16px,4.6vw,21px)}
+ #view-positions .panelhead,#view-history .panelhead{align-items:center}
+ #view-positions table,#view-history table{min-width:720px}
+ #view-strategies .strategylist{max-height:55vh}
+ .pageintro{padding:13px 14px;margin-bottom:12px}
+ .pageintro h2{font-size:18px}
+ .pageintro p{font-size:11px;line-height:1.5}
+ .panel{padding:12px}
+ .panelhead{flex-wrap:wrap}
+ .charttools,.charttools.overlays{gap:7px}
+ .timeframes{width:100%;order:2}
+ .chartzoom{margin-left:auto}
+ .twocol{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media(max-width:390px){
+ .appnav a{font-size:9px;padding:7px 8px}
+ .headeractions{max-width:60%}
+ .headeractions #resetBtn{max-width:110px;white-space:normal}
+ .metrics strong{font-size:16px}
+ .twocol{grid-template-columns:minmax(0,1fr)}
+}
