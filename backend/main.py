@@ -484,9 +484,12 @@ async def unhandled_api_error(request:Request,exc:Exception):
 
 @app.get("/api/health")
 def health():
+    now=int(time.time())
     ready={s:feed_is_fresh(s) for s in SYMBOLS}
+    ages={s:(max(0,now-int(quotes_meta[s].get("time",0))) if s in quotes_meta and quotes_meta[s].get("live") else None) for s in SYMBOLS}
     return {"ok":True,"engine":engine_status,"mode":"PAPER_ONLY","broker_connected":False,
-        "feeds":providers.STATUS,"last_errors":providers.LAST_ERROR,"live_ready":ready}
+        "feeds":providers.STATUS,"last_errors":providers.LAST_ERROR,
+        "live_ready":ready,"feed_age_seconds":ages}
 
 @app.get("/api/me")
 def me(user=Depends(current_user)):return {"id":user["id"],"email":user.get("email"),"phone":user.get("phone")}
