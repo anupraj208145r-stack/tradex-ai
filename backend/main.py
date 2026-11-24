@@ -280,6 +280,10 @@ def evaluate_auto(symbol:str):
     with SessionLocal() as db:
         accounts=db.scalars(select(UserPaperAccount).where(UserPaperAccount.auto_enabled.is_(True))).all()
         for account in accounts:
+            # Re-evaluate limits on every market tick before the bot can create a new order.
+            if account_snapshot(account.user_id)["risk"]["status"] != "ACTIVE":
+                account.auto_enabled=False
+                continue
             series=aggregate_candles(candles[symbol],account.active_timeframe or "1m")
             if len(series)<55:continue
             bar_time=int(series[-1]["time"]);bar_key=(account.user_id,symbol,account.active_timeframe or "1m")
