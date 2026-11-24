@@ -120,5 +120,16 @@ $("showFvg").onchange=()=>window.drawTradeXZones?.();$("showOb").onchange=()=>wi
 $("zoomIn").onclick=()=>{chartBarSpacing=Math.min(30,chartBarSpacing*1.25);chart.timeScale().applyOptions({barSpacing:chartBarSpacing});};
 $("zoomOut").onclick=()=>{chartBarSpacing=Math.max(2,chartBarSpacing/1.25);chart.timeScale().applyOptions({barSpacing:chartBarSpacing});};
 $("restoreChart").onclick=()=>{chartBarSpacing=8;chart.timeScale().applyOptions({barSpacing:chartBarSpacing,rightOffset:5});chart.priceScale("right").applyOptions({autoScale:true});chart.timeScale().fitContent();};
-async function boot(){await window.authReady;if(!await window.getTradeXAccessToken?.())return;initChart();const initial=await refresh();await loadStrategies(initial.account.active_strategy);await loadCandles().catch(()=>{});await refreshFeeds();connectMarketSocket();setInterval(refreshFeeds,30000);}
+function showView(name){
+ const allowed=["trading","portfolio","strategies"];if(!allowed.includes(name))name="trading";
+ document.querySelectorAll("[data-page-view]").forEach(el=>el.classList.toggle("active",el.dataset.pageView===name));
+ document.querySelectorAll("[data-view]").forEach(el=>el.classList.toggle("active",el.dataset.view===name));
+ const titles={trading:["WORKSPACE / TRADING TERMINAL","Trading Terminal"],portfolio:["ACCOUNT / PERFORMANCE","Balance & P&L"],strategies:["AUTOMATION / RESEARCH","Strategies & Automation"]};
+ $("viewEyebrow").textContent=titles[name][0];$("viewTitle").textContent=titles[name][1];
+ if(name==="trading"&&chart){requestAnimationFrame(()=>{chart.applyOptions({width:Math.max(280,$("chart").clientWidth),height:Math.max(240,$("chart").clientHeight)});window.drawTradeXZones?.();});}
+ history.replaceState(null,"","#"+name);
+}
+document.querySelectorAll("[data-view]").forEach(link=>link.addEventListener("click",event=>{event.preventDefault();showView(link.dataset.view);}));
+window.addEventListener("hashchange",()=>showView(location.hash.slice(1)));
+async function boot(){showView(location.hash.slice(1)||"trading");await window.authReady;if(!await window.getTradeXAccessToken?.())return;initChart();const initial=await refresh();await loadStrategies(initial.account.active_strategy);await loadCandles().catch(()=>{});await refreshFeeds();connectMarketSocket();setInterval(refreshFeeds,30000);}
 boot().catch(error=>toast(error.message));
