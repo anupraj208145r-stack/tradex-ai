@@ -5,7 +5,22 @@ const $ = id => document.getElementById(id);
 const CONTRACT_SIZE = {XAUUSD:100, BTCUSD:1};
 const money = n => (n < 0 ? "-$" : "$") + Math.abs(Number(n || 0)).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});
 function toast(message){const el=$("toast");el.textContent=message;el.classList.add("show");setTimeout(()=>el.classList.remove("show"),2300);}
-async function api(path, options={}){const token=await window.getTradeXAccessToken?.();if(!token)throw new Error("Please sign in again.");const response=await fetch(API+path,{...options,headers:{"Content-Type":"application/json",...(options.headers||{}),"Authorization":"Bearer "+token}});const data=await response.json();if(!response.ok)throw new Error(data.detail||"Request failed");return data;}
+async function api(path, options={}){
+ const token=await window.getTradeXAccessToken?.();
+ if(!token)throw new Error("Please sign in again.");
+ const response=await fetch(API+path,{...options,headers:{"Content-Type":"application/json",...(options.headers||{}),"Authorization":"Bearer "+token}});
+ const raw=await response.text();
+ let data={};
+ if(raw){
+  try{data=JSON.parse(raw);}
+  catch{
+   const excerpt=raw.replace(/\\s+/g," ").slice(0,140);
+   throw new Error(path+" returned HTTP "+response.status+" with a non-JSON response: "+excerpt);
+  }
+ }
+ if(!response.ok)throw new Error(data.detail||("Request failed (HTTP "+response.status+")"));
+ return data;
+}
 function initChart(){
  const el=$("chart");
  chart=LightweightCharts.createChart(el,{
@@ -25,7 +40,12 @@ async function loadCandles(){
  const rows=await api("/api/candles/"+symbol+"?timeframe="+timeframe);
  const byTime=new Map();
  for(const c of rows){const time=Number(c.time),open=Number(c.open),high=Number(c.high),low=Number(c.low),close=Number(c.close);
-  if(Number.isFinite(time)&&Number.isFinite(open)&&Number.isFinite(high)&&Number.isFinite(low)&&Number.isFinite(close)&&high>=low)byTime.set(time,{time,open,high,low,close});
+  const maxRangePct=symbol==="XAUUSD"?0.01:0.05;
+  const valid=Number.isFinite(time)&&time>0&&time<=Date.now()/1000+60&&
+   [open,high,low,close].every(v=>Number.isFinite(v)&&v>0)&&
+   high>=Math.max(open,close)&&low<=Math.min(open,close)&&high>=low&&
+   (high-low)/((open+close)/2)<=maxRangePct;
+  if(valid)byTime.set(time,{time,open,high,low,close});
  }
  candles=[...byTime.values()].sort((a,b)=>a.time-b.time).slice(-1000);
  candleSeries.setData(candles);
@@ -38,8 +58,11 @@ async function loadCandles(){
 }
 function updateChart(quote){
  if(!quote||!Number.isFinite(Number(quote.price))||!Number.isFinite(Number(quote.time)))return;
- const price=Number(quote.price), step=({"1m":60,"5m":300,"15m":900,"30m":1800,"1h":3600,"4h":14400,"1d":86400})[timeframe], minute=Math.floor(Number(quote.time)/step)*step;
+ const price=Number(quote.price), stamp=Number(quote.time)>10000000000?Number(quote.time)/1000:Number(quote.time);
+ if(stamp<=0||Math.abs(Date.now()/1000-stamp)>120)return;
+ const step=({"1m":60,"5m":300,"15m":900,"30m":1800,"1h":3600,"4h":14400,"1d":86400})[timeframe], minute=Math.floor(stamp/step)*step;
  const last=candles[candles.length-1];
+ if(last&&minute<last.time)return;
  if(!last){const c={time:minute,open:price,high:price,low:price,close:price};candles.push(c);candleSeries.update(c);}
  else if(minute<last.time){last.high=Math.max(last.high,price);last.low=Math.min(last.low,price);last.close=price;candleSeries.update(last);}
  else if(minute===last.time){last.high=Math.max(last.high,price);last.low=Math.min(last.low,price);last.close=price;candleSeries.update(last);}

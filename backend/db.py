@@ -101,6 +101,7 @@ class UserPaperAccount(Base):
     active_strategy: Mapped[str] = mapped_column(String(64), default="STR-001")
     active_timeframe: Mapped[str] = mapped_column(String(8), default="1m")
     risk_pct: Mapped[float] = mapped_column(Float, default=1.0)
+    legacy_migrated: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_at: Mapped[int] = mapped_column(BigInteger, default=lambda: int(datetime.now(timezone.utc).timestamp()))
 
 class UserPosition(Base):
@@ -183,6 +184,11 @@ def init_db():
             if "active_timeframe" not in columns:
                 conn.exec_driver_sql(
                     f"ALTER TABLE {table_name} ADD COLUMN active_timeframe VARCHAR(8) NOT NULL DEFAULT '1m'"
+                )
+                columns.add("active_timeframe")
+            if table_name == "user_paper_accounts" and "legacy_migrated" not in columns:
+                conn.exec_driver_sql(
+                    "ALTER TABLE user_paper_accounts ADD COLUMN legacy_migrated BOOLEAN NOT NULL DEFAULT FALSE"
                 )
     with SessionLocal() as db:
         if db.get(PaperAccount, 1) is None:
