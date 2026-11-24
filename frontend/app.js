@@ -121,10 +121,10 @@ $("zoomIn").onclick=()=>{chartBarSpacing=Math.min(30,chartBarSpacing*1.25);chart
 $("zoomOut").onclick=()=>{chartBarSpacing=Math.max(2,chartBarSpacing/1.25);chart.timeScale().applyOptions({barSpacing:chartBarSpacing});};
 $("restoreChart").onclick=()=>{chartBarSpacing=8;chart.timeScale().applyOptions({barSpacing:chartBarSpacing,rightOffset:5});chart.priceScale("right").applyOptions({autoScale:true});chart.timeScale().fitContent();};
 function showView(name){
- const allowed=["trading","portfolio","strategies"];if(!allowed.includes(name))name="trading";
+ const allowed=["trading","portfolio","positions","history","strategies"];if(!allowed.includes(name))name="trading";
  document.querySelectorAll("[data-page-view]").forEach(el=>el.classList.toggle("active",el.dataset.pageView===name));
  document.querySelectorAll("[data-view]").forEach(el=>el.classList.toggle("active",el.dataset.view===name));
- const titles={trading:["WORKSPACE / TRADING TERMINAL","Trading Terminal"],portfolio:["ACCOUNT / PERFORMANCE","Balance & P&L"],strategies:["AUTOMATION / RESEARCH","Strategies & Automation"]};
+ const titles={trading:["WORKSPACE / TRADING TERMINAL","Trading Terminal"],portfolio:["ACCOUNT / PERFORMANCE","Balance & P&L"],positions:["RISK MANAGEMENT","Open Positions"],history:["ACCOUNT ACTIVITY","Trade History"],strategies:["AUTOMATION / RESEARCH","Strategies & Automation"]};
  $("viewEyebrow").textContent=titles[name][0];$("viewTitle").textContent=titles[name][1];
  if(name==="trading"&&chart){requestAnimationFrame(()=>{chart.applyOptions({width:Math.max(280,$("chart").clientWidth),height:Math.max(240,$("chart").clientHeight)});window.drawTradeXZones?.();});}
  history.replaceState(null,"","#"+name);
