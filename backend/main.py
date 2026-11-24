@@ -181,7 +181,28 @@ def account_snapshot(user_id:str):
         positions=[position_dict(p) for p in db.scalars(select(UserPosition).where(UserPosition.user_id==user_id)).all()]
         history=[trade_dict(t) for t in db.scalars(select(UserTrade).where(UserTrade.user_id==user_id).order_by(desc(UserTrade.closed_at)).limit(100)).all()]
         floating=sum((prices.get(p["symbol"],p["entry"])-p["entry"])*p["quantity"]*CONTRACT_SIZE.get(p["symbol"],1.0)*(1 if p["side"]=="BUY" else -1) for p in positions)
-        return {"balance":round(a.balance,2),"equity":round(a.balance+floating,2),
+        equity=float(a.balance)+floating
+        day_start=int(time.time())//86400*86400
+        daily_realized=float(db.scalar(select(func.coalesce(func.sum(UserTrade.pnl),0.0)).where(UserTrade.user_id==user_id,UserTrade.closed_at>=day_start)) or 0.0)
+        daily_pnl=daily_realized+floating
+        daily_limit=float(a.starting_balance)*0.03
+        overall_limit=float(a.starting_balance)*0.08
+        profit_target=float(a.starting_balance)*0.08
+        daily_breached=daily_pnl<=-daily_limit
+        overall_breached=equity<=float(a.starting_balance)-overall_limit
+        target_hit=equity>=float(a.starting_balance)+profit_target
+        if daily_breached or overall_breached or target_hit:
+            a.auto_enabled=False
+            db.commit()
+        funded={"starting_balance":round(float(a.starting_balance),2),"daily_pnl":round(daily_pnl,2),
+            "daily_loss_limit":round(daily_limit,2),"overall_loss_limit":round(overall_limit,2),
+            "profit_target":round(profit_target,2),"equity":round(equity,2),
+            "daily_loss_remaining":round(max(0,daily_limit+daily_pnl),2),
+            "overall_loss_remaining":round(max(0,equity-(float(a.starting_balance)-overall_limit)),2),
+            "profit_remaining":round(max(0,profit_target-(equity-float(a.starting_balance))),2),
+            "daily_breached":daily_breached,"overall_breached":overall_breached,"target_hit":target_hit,
+            "status":"BREACHED" if daily_breached or overall_breached else "TARGET HIT" if target_hit else "ACTIVE"}
+        return {"balance":round(a.balance,2),"equity":round(equity,2),"funded":funded,
             "realized_pnl":round(a.realized_pnl,2),"unrealized_pnl":round(floating,2),
             "positions":positions,"history":history,"auto":a.auto_enabled,
             "active_strategy":a.active_strategy,"active_timeframe":a.active_timeframe,"risk_pct":a.risk_pct}
@@ -481,6 +502,8 @@ def order(req:OrderIn,user=Depends(current_user)):
     if req.symbol not in prices or not feed_is_fresh(req.symbol):raise HTTPException(503,"No fresh live market price available yet for this symbol")
     with SessionLocal() as db:
         a=db_account(db,user["id"])
+        funded=account_snapshot(user["id"])["funded"]
+        if funded["daily_breached"] or funded["overall_breached"] or funded["target_hit"]:raise HTTPException(403,detail="Funded challenge locked: "+funded["status"])
         if req.quantity*prices[req.symbol]*CONTRACT_SIZE[req.symbol]>max(a.balance,0)*MAX_POSITION_NOTIONAL_MULTIPLE:
             raise HTTPException(400,"Paper order notional exceeds 5x account balance")
         entry=prices[req.symbol]
@@ -511,6 +534,8 @@ def close(position_id:str,user=Depends(current_user)):
 @app.post("/api/auto")
 def auto(req:AutoIn,user=Depends(current_user)):
     if req.enabled:
+        funded=account_snapshot(user["id"])["funded"]
+        if funded["daily_breached"] or funded["overall_breached"] or funded["target_hit"]:raise HTTPException(403,detail="Funded challenge locked: "+funded["status"])
         item=next((s for s in get_strategy_items(user["id"]) if s["id"]==(req.strategy_id or "STR-001")),None)
         if item is None:raise HTTPException(404,"Strategy not found")
         if not item.get("executable"):raise HTTPException(400,"Strategy is not executable")
