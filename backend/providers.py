@@ -1,5 +1,5 @@
 from __future__ import annotations
-import asyncio, json, os, random, time
+import asyncio, inspect, json, os, random, time
 from collections.abc import Awaitable, Callable
 from urllib.parse import quote
 import httpx
@@ -79,13 +79,17 @@ async def gold_stream(on_tick: TickCallback):
     # X-TD-APIKEY as a supported WebSocket authentication header.
     url="wss://ws.twelvedata.com/v1/quotes/price"
     auth_headers={"X-TD-APIKEY":api_key}
+    # websockets 13 uses extra_headers; 14+ uses additional_headers.
+    header_kw=("additional_headers" if
+        "additional_headers" in inspect.signature(websockets.connect).parameters
+        else "extra_headers")
     delay=2
     while True:
         heartbeat_at=time.monotonic()+10
         try:
             STATUS["XAUUSD"]="connecting"
             async with websockets.connect(
-                url, additional_headers=auth_headers,
+                url, **{header_kw:auth_headers},
                 ping_interval=None, close_timeout=5, open_timeout=15,
                 max_queue=32
             ) as ws:
