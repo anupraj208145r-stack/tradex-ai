@@ -75,15 +75,18 @@ async def gold_stream(on_tick: TickCallback):
     if not api_key:
         STATUS["XAUUSD"]="missing_credentials"
         return
-    # Twelve Data's documented real-time price endpoint.
-    url="wss://ws.twelvedata.com/v1/quotes/price?apikey="+quote(api_key, safe="")
+    # Keep credentials out of the URL/logs. Twelve Data also documents
+    # X-TD-APIKEY as a supported WebSocket authentication header.
+    url="wss://ws.twelvedata.com/v1/quotes/price"
+    auth_headers={"X-TD-APIKEY":api_key}
     delay=2
     while True:
         heartbeat_at=time.monotonic()+10
         try:
             STATUS["XAUUSD"]="connecting"
             async with websockets.connect(
-                url, ping_interval=None, close_timeout=5, open_timeout=15,
+                url, additional_headers=auth_headers,
+                ping_interval=None, close_timeout=5, open_timeout=15,
                 max_queue=32
             ) as ws:
                 await ws.send(json.dumps({
