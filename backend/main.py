@@ -401,6 +401,8 @@ async def on_tick(symbol:str,price:float,timestamp:int,source:str):
     now=int(time.time())
     if timestamp>10_000_000_000:timestamp=int(timestamp/1000)
     if timestamp<=0 or abs(int(timestamp)-now)>120:return
+    # Any validated provider tick (WebSocket or REST fallback) proves the feed is usable.
+    providers.STATUS[symbol]="connected"
     async with market_lock:
         minute=timestamp-(timestamp%60)
         current=current_candle.get(symbol)
@@ -452,10 +454,14 @@ async def market_worker(symbol:str):
                 persist_candle(symbol,c,c.get("source","history"))
             candles[symbol]=[merged[t] for t in sorted(merged)][-1000:]
             last=history[-1]
-            prices[symbol]=float(last["close"])
-            quotes_meta[symbol]={"symbol":symbol,"price":prices[symbol],"time":last["time"],
-                "feed":last.get("source","history"),"status":"history_only","live":False}
-            current_candle[symbol]={k:last[k] for k in ("time","open","high","low","close")}
+            # Do not let a slow history response overwrite a newer live tick.
+            fresh_live_tick=(providers.LAST_TICK_AT[symbol]>0 and
+                             time.time()-providers.LAST_TICK_AT[symbol]<=60)
+            if not fresh_live_tick:
+                prices[symbol]=float(last["close"])
+                quotes_meta[symbol]={"symbol":symbol,"price":prices[symbol],"time":last["time"],
+                    "feed":last.get("source","history"),"status":"history_only","live":False}
+                current_candle[symbol]={k:last[k] for k in ("time","open","high","low","close")}
     except Exception as exc:
         providers.LAST_ERROR[symbol]=str(exc)[:240]
     fallback_task=asyncio.create_task(providers.rest_fallback(symbol,on_tick))

@@ -1,5 +1,5 @@
 from __future__ import annotations
-import asyncio, json, os, random, time
+import asyncio, inspect, json, os, random, time
 from collections.abc import Awaitable, Callable
 from urllib.parse import quote
 import httpx
@@ -75,36 +75,90 @@ async def gold_stream(on_tick: TickCallback):
     if not api_key:
         STATUS["XAUUSD"]="missing_credentials"
         return
-    url="wss://ws.twelvedata.com/v1/quotes/price?apikey="+quote(api_key)
-    delay=1
+    # Keep credentials out of the URL/logs. Twelve Data also documents
+    # X-TD-APIKEY as a supported WebSocket authentication header.
+    url="wss://ws.twelvedata.com/v1/quotes/price"
+    auth_headers={"X-TD-APIKEY":api_key}
+    # websockets 13 uses extra_headers; 14+ uses additional_headers.
+    header_kw=("additional_headers" if
+        "additional_headers" in inspect.signature(websockets.connect).parameters
+        else "extra_headers")
+    delay=2
     while True:
+        heartbeat_at=time.monotonic()+10
         try:
             STATUS["XAUUSD"]="connecting"
-            async with websockets.connect(url,ping_interval=20,ping_timeout=20,close_timeout=5) as ws:
-                await ws.send(json.dumps({"action":"subscribe","params":{"symbols":"XAU/USD"}}))
-                async def heartbeat():
-                    while True:
-                        await asyncio.sleep(10)
+            async with websockets.connect(
+                url, **{header_kw:auth_headers},
+                ping_interval=None, close_timeout=5, open_timeout=15,
+                max_queue=32
+            ) as ws:
+                await ws.send(json.dumps({
+                    "action":"subscribe",
+                    "params":{"symbols":"XAU/USD"}
+                }))
+                STATUS["XAUUSD"]="awaiting_ticks"
+                LAST_ERROR["XAUUSD"]=None
+                subscribed=False
+                delay=2
+                while True:
+                    # Twelve Data recommends an application heartbeat every ~10s.
+                    timeout=max(0.1,heartbeat_at-time.monotonic())
+                    try:
+                        raw=await asyncio.wait_for(ws.recv(),timeout=timeout)
+                    except asyncio.TimeoutError:
                         await ws.send(json.dumps({"action":"heartbeat"}))
-                heartbeat_task=asyncio.create_task(heartbeat())
-                STATUS["XAUUSD"]="awaiting_ticks"; LAST_ERROR["XAUUSD"]=None; delay=1
-                try:
-                    async for raw in ws:
-                        message=json.loads(raw)
-                        if message.get("event")=="price" and message.get("symbol") in ("XAU/USD","XAUUSD"):
-                            await on_tick("XAUUSD",float(message["price"]),
-                                int(message.get("timestamp") or time.time()),"twelvedata")
-                        elif message.get("status")=="error" or message.get("event")=="error":
-                            raise RuntimeError(message.get("message") or str(message))
-                finally:
-                    heartbeat_task.cancel()
-                    await asyncio.gather(heartbeat_task,return_exceptions=True)
+                        heartbeat_at=time.monotonic()+10
+                        continue
+                    message=json.loads(raw)
+                    event=message.get("event")
+                    if event=="subscribe-status":
+                        failures=message.get("fails") or []
+                        success=message.get("success") or []
+                        if message.get("status")!="ok" or failures or not any(
+                            item.get("symbol") in ("XAU/USD","XAUUSD") for item in success
+                        ):
+                            raise RuntimeError(
+                                "Twelve Data subscription not accepted: "+
+                                json.dumps({"success":success,"fails":failures})[:180]
+                            )
+                        subscribed=True
+                        STATUS["XAUUSD"]="subscribed_waiting_ticks"
+                    elif event=="price":
+                        if message.get("symbol") not in ("XAU/USD","XAUUSD"):
+                            continue
+                        price=float(message["price"])
+                        timestamp=int(message.get("timestamp") or time.time())
+                        await on_tick("XAUUSD",price,timestamp,"twelvedata")
+                        STATUS["XAUUSD"]="connected"
+                        LAST_ERROR["XAUUSD"]=None
+                    elif message.get("status")=="error" or event=="error":
+                        raise RuntimeError("Twelve Data error: "+json.dumps(message)[:180])
+                    # Ignore heartbeat/status messages; price events alone make feed live.
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            STATUS["XAUUSD"]="reconnecting"; LAST_ERROR["XAUUSD"]=safe_error(exc)
-            import logging; logging.getLogger("tradex.market").warning("XAUUSD WebSocket reconnect: %s",LAST_ERROR["XAUUSD"])
-            await asyncio.sleep(delay+random.random()); delay=min(delay*2,30)
+            # Preserve close code/reason; the generic websockets string alone hides it.
+            detail=safe_error(exc)
+            close_code=getattr(exc,"code",None)
+            close_reason=getattr(exc,"reason",None)
+            if close_code is not None:
+                detail=f"{type(exc).__name__}: close_code={close_code}, reason={close_reason!r}"
+            STATUS["XAUUSD"]="reconnecting"
+            LAST_ERROR["XAUUSD"]=detail[:240]
+            import logging
+            logging.getLogger("tradex.market").warning(
+                "XAUUSD WebSocket disconnected (subscribed=%s): %s",
+                locals().get("subscribed",False), LAST_ERROR["XAUUSD"]
+            )
+            await asyncio.sleep(delay+random.random())
+            delay=min(delay*2,60)
+        else:
+            # A clean server close still needs a paced reconnect.
+            STATUS["XAUUSD"]="reconnecting"
+            LAST_ERROR["XAUUSD"]="Twelve Data closed the WebSocket connection"
+            await asyncio.sleep(delay+random.random())
+            delay=min(delay*2,60)
 
 async def rest_quote(symbol: str) -> float:
     timeout=httpx.Timeout(8.0, connect=4.0)
@@ -130,8 +184,11 @@ async def rest_quote(symbol: str) -> float:
         return value
 
 async def rest_fallback(symbol: str, on_tick: TickCallback):
-    interval=5 if symbol=="BTCUSD" else 12
-    stale_after=12 if symbol=="BTCUSD" else 25
+    # Twelve Data Basic has a small per-minute API budget. Keep Gold polling
+    # conservative and back off after provider throttling instead of retrying.
+    base_interval=5 if symbol=="BTCUSD" else 60
+    stale_after=12 if symbol=="BTCUSD" else 60
+    interval=base_interval
     while True:
         try:
             if time.time()-LAST_TICK_AT[symbol] > stale_after:
@@ -139,9 +196,12 @@ async def rest_fallback(symbol: str, on_tick: TickCallback):
                 await on_tick(symbol,price,int(time.time()),
                     "coinbase-rest" if symbol=="BTCUSD" else "twelvedata-rest")
                 LAST_ERROR[symbol]=None
+                interval=base_interval
         except asyncio.CancelledError:
             raise
         except Exception as exc:
             LAST_ERROR[symbol]=safe_error(exc)
             import logging; logging.getLogger("tradex.market").warning("%s REST fallback: %s",symbol,LAST_ERROR[symbol])
+            if "429" in str(exc) or "Too Many Requests" in str(exc):
+                interval=min(max(interval*2,base_interval),300)
         await asyncio.sleep(interval)
